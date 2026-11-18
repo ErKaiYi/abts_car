@@ -870,77 +870,102 @@ class _PlayerPageState extends State<PlayerPage> {
             return SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '播放按键设置',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textMain,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('上一曲/下一曲 切换模式', style: TextStyle(fontSize: 15)),
-                      subtitle: Text(
-                        player.prevNextMode == 1
-                            ? '当前：快进/快退 (${player.customSeekSeconds} 秒)'
-                            : '当前：切换上一集/下一集',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      value: player.prevNextMode == 1,
-                      activeThumbColor: AppTheme.accent,
-                      onChanged: (v) {
-                        player.setPrevNextMode(v ? 1 : 0);
-                        setSheet(() {});
-                      },
-                    ),
-                    const Divider(),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('暂停时自动回退', style: TextStyle(fontSize: 15)),
-                      subtitle: Text(
-                        player.pauseRewindEnabled
-                            ? '暂停后自动往后退 ${player.customSeekSeconds} 秒，方便重听'
-                            : '暂停即停在当前位置',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                      value: player.pauseRewindEnabled,
-                      activeThumbColor: AppTheme.accent,
-                      onChanged: (v) {
-                        player.setPauseRewindEnabled(v);
-                        setSheet(() {});
-                      },
-                    ),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        const Text('自定义快进/快退秒数', style: TextStyle(fontSize: 15)),
-                        const Spacer(),
-                        Text(
-                          '${player.customSeekSeconds} 秒',
-                          style: TextStyle(fontSize: 14, color: AppTheme.accent, fontWeight: FontWeight.w700),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '播放按键设置',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.textMain,
                         ),
-                      ],
-                    ),
-                    Slider(
-                      value: player.customSeekSeconds.toDouble(),
-                      min: 5,
-                      max: 120,
-                      divisions: 23,
-                      activeColor: AppTheme.accent,
-                      inactiveColor: AppTheme.divider,
-                      onChanged: (v) {
-                        player.setCustomSeekSeconds(v.round());
-                        setSheet(() {});
-                      },
-                    ),
-                  ],
+                      ),
+                      const SizedBox(height: 16),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('上一曲/下一曲 切换模式', style: TextStyle(fontSize: 15)),
+                        subtitle: Text(
+                          player.prevNextMode == 1
+                              ? '当前：快进/快退 (${player.customSeekSeconds} 秒)'
+                              : '当前：切换上一集/下一集',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        value: player.prevNextMode == 1,
+                        activeThumbColor: AppTheme.accent,
+                        onChanged: (v) {
+                          player.setPrevNextMode(v ? 1 : 0);
+                          setSheet(() {});
+                        },
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('暂停时自动回退', style: TextStyle(fontSize: 15)),
+                        subtitle: Text(
+                          player.pauseRewindEnabled
+                              ? '暂停后自动往后退 ${player.pauseRewindSeconds} 秒，方便重听'
+                              : '暂停即停在当前位置',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        value: player.pauseRewindEnabled,
+                        activeThumbColor: AppTheme.accent,
+                        onChanged: (v) {
+                          player.setPauseRewindEnabled(v);
+                          setSheet(() {});
+                        },
+                      ),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Text('按键快进/快退秒数', style: TextStyle(fontSize: 15)),
+                          const Spacer(),
+                          Text(
+                            '${player.customSeekSeconds} 秒',
+                            style: TextStyle(fontSize: 14, color: AppTheme.accent, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: player.customSeekSeconds.toDouble(),
+                        min: 5,
+                        max: 120,
+                        divisions: 23,
+                        activeColor: AppTheme.accent,
+                        inactiveColor: AppTheme.divider,
+                        onChanged: (v) {
+                          player.setCustomSeekSeconds(v.round());
+                          setSheet(() {});
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          const Text('暂停时回退秒数', style: TextStyle(fontSize: 15)),
+                          const Spacer(),
+                          Text(
+                            '${player.pauseRewindSeconds} 秒',
+                            style: TextStyle(fontSize: 14, color: AppTheme.accent, fontWeight: FontWeight.w700),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: player.pauseRewindSeconds.toDouble(),
+                        min: 1,
+                        max: 30,
+                        divisions: 29,
+                        activeColor: AppTheme.accent,
+                        inactiveColor: AppTheme.divider,
+                        onChanged: (v) {
+                          player.setPauseRewindSeconds(v.round());
+                          setSheet(() {});
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
