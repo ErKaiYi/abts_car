@@ -112,14 +112,17 @@ class BookPlayer extends ChangeNotifier {
 
   // ---------- 自定义快进快退与按键模式 ----------
   static const _prefSeekSeconds = 'abts_seek_seconds';
+  static const _prefPauseRewindSeconds = 'abts_pause_rewind_seconds'; // 新增独立设置
   static const _prefPrevNextMode = 'abts_prev_next_mode'; // 0: 切集, 1: 快进快退
   static const _prefPauseRewind = 'abts_pause_rewind';
 
   int _customSeekSeconds = 15; // 默认15秒
+  int _pauseRewindSeconds = 3; // 暂停回退默认3秒（通常不需要太长）
   int _prevNextMode = 0; // 默认上一曲/下一曲切集
   bool _pauseRewindEnabled = true; // 暂停时是否回退
 
   int get customSeekSeconds => _customSeekSeconds;
+  int get pauseRewindSeconds => _pauseRewindSeconds;
   int get prevNextMode => _prevNextMode;
   bool get pauseRewindEnabled => _pauseRewindEnabled;
 
@@ -168,6 +171,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _customSeekSeconds = prefs.getInt(_prefSeekSeconds) ?? 15;
+      _pauseRewindSeconds = prefs.getInt(_prefPauseRewindSeconds) ?? 3;
       _prevNextMode = prefs.getInt(_prefPrevNextMode) ?? 0;
       _pauseRewindEnabled = prefs.getBool(_prefPauseRewind) ?? true;
       notifyListeners();
@@ -192,6 +196,16 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefSeekSeconds, _customSeekSeconds);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// 设置自定义暂停回退秒数
+  Future<void> setPauseRewindSeconds(int seconds) async {
+    _pauseRewindSeconds = seconds.clamp(1, 60); // 限制在1-60秒之间
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefPauseRewindSeconds, _pauseRewindSeconds);
     } catch (_) {}
     notifyListeners();
   }
@@ -1087,11 +1101,7 @@ class BookPlayer extends ChangeNotifier {
   ///
   /// 返回是否真的播起来，供媒体会话决定是否更新状态。
   Future<bool> resumeFromMediaCommand() async {
-    if (!_playAllowed) {
-      // 车机重启后的自动「播放」指令：用户还没打开应用，不响
-      debugPrint('[BookPlayer] 应用未打开，忽略媒体播放指令');
-      return false;
-    }
+    // 删除了 !_playAllowed 的限制，允许媒体按键随时唤醒播放
     if (_loaded) {
       await resume();
       return true;
@@ -1125,11 +1135,11 @@ class BookPlayer extends ChangeNotifier {
     unawaited(AudioFocus.instance.abandon());
 
     // 暂停后自动回退
-    if (_pauseRewindEnabled && _customSeekSeconds > 0) {
+    if (_pauseRewindEnabled && _pauseRewindSeconds > 0) {
       final currentPos = currentPosition;
-      final targetPos = currentPos - Duration(seconds: _customSeekSeconds);
-      // 如果回退后小于0，就停在0
-      await _player.seek(targetPos < Duration.zero ? Duration.zero : targetPos);
+      final targetPos = currentPos - Duration(seconds: _pauseRewindSeconds);
+      // 不要用 await 死等，用 unawaited 让它在后台默默回退，避免播放引擎卡死
+      unawaited(_player.seek(targetPos < Duration.zero ? Duration.zero : targetPos));
     }
 
     _pushState(force: true);
