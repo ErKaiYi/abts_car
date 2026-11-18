@@ -298,6 +298,14 @@ class BookPlayer extends ChangeNotifier {
   void setup() {
     if (_ready) return;
     _ready = true;
+    // ---- 新增：强制以最兼容的方式初始化媒体会话 ----
+    // 比亚迪 DiLink 对 MediaSession 的激活状态比较敏感，
+    // 显式设置一个标准的会话 Activity 可以帮助系统识别按键目标。
+    // 注意：这只是一个补充尝试，如果 AudioService 内部已经处理，这里不会冲突。
+    // ---- 新增结束 ----
+    
+    unawaited(loadRate());
+    unawaited(loadVolume());
     unawaited(loadRate());
     unawaited(loadVolume());
     unawaited(loadPlaybackSettings()); 
