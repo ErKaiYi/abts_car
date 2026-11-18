@@ -547,6 +547,11 @@ class _PlayerPageState extends State<PlayerPage> {
     final ringIcon = big ? 56.0 : (dense ? 40.0 : 44.0);
     final side = big ? 64.0 : (dense ? 44.0 : 48.0);
     final gap = big ? 24.0 : 8.0;
+
+    // 判断当前是否处于快进/快退模式
+    final isSeekMode = player.prevNextMode == 1;
+    final seekSec = player.customSeekSeconds;
+
     return Padding(
       // 车机：上方留白把控制键与进度条分开，下方留白把倍速等功能条再推远
       padding: dense
@@ -557,12 +562,20 @@ class _PlayerPageState extends State<PlayerPage> {
         children: [
           _roundAction(
             size: side,
-            onTap: player.hasPrev ? player.previous : null,
-            child: Icon(
-              Icons.skip_previous_rounded,
-              size: side * 0.56,
-              color: player.hasPrev ? AppTheme.textMain : AppTheme.textHint,
-            ),
+            onTap: player.hasPrev || isSeekMode ? player.previous : null,
+            // 如果是快退模式，显示快退图标；否则显示上一曲图标
+            child: isSeekMode
+                ? _Seek15Icon(
+                    forward: false,
+                    color: AppTheme.textMain,
+                    size: side * 0.5,
+                    customText: '$seekSec',
+                  )
+                : Icon(
+                    Icons.skip_previous_rounded,
+                    size: side * 0.56,
+                    color: player.hasPrev ? AppTheme.textMain : AppTheme.textHint,
+                  ),
           ),
           SizedBox(width: gap),
           _roundAction(
@@ -591,12 +604,20 @@ class _PlayerPageState extends State<PlayerPage> {
           SizedBox(width: gap),
           _roundAction(
             size: side,
-            onTap: player.hasNext ? player.next : null,
-            child: Icon(
-              Icons.skip_next_rounded,
-              size: side * 0.56,
-              color: player.hasNext ? AppTheme.textMain : AppTheme.textHint,
-            ),
+            onTap: player.hasNext || isSeekMode ? player.next : null,
+            // 如果是快进模式，显示快进图标；否则显示下一曲图标
+            child: isSeekMode
+                ? _Seek15Icon(
+                    forward: true,
+                    color: AppTheme.textMain,
+                    size: side * 0.5,
+                    customText: '$seekSec',
+                  )
+                : Icon(
+                    Icons.skip_next_rounded,
+                    size: side * 0.56,
+                    color: player.hasNext ? AppTheme.textMain : AppTheme.textHint,
+                  ),
           ),
         ],
       ),
@@ -827,6 +848,97 @@ class _PlayerPageState extends State<PlayerPage> {
                             },
                           ),
                       ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 播放按键设置弹窗
+  void _showPlaybackSettings(BookPlayer player) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheet) {
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '播放按键设置',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.textMain,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('上一曲/下一曲 切换模式', style: TextStyle(fontSize: 15)),
+                      subtitle: Text(
+                        player.prevNextMode == 1
+                            ? '当前：快进/快退 (${player.customSeekSeconds} 秒)'
+                            : '当前：切换上一集/下一集',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      value: player.prevNextMode == 1,
+                      activeThumbColor: AppTheme.accent,
+                      onChanged: (v) {
+                        player.setPrevNextMode(v ? 1 : 0);
+                        setSheet(() {});
+                      },
+                    ),
+                    const Divider(),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('暂停时自动回退', style: TextStyle(fontSize: 15)),
+                      subtitle: Text(
+                        player.pauseRewindEnabled
+                            ? '暂停后自动往后退 ${player.customSeekSeconds} 秒，方便重听'
+                            : '暂停即停在当前位置',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      value: player.pauseRewindEnabled,
+                      activeThumbColor: AppTheme.accent,
+                      onChanged: (v) {
+                        player.setPauseRewindEnabled(v);
+                        setSheet(() {});
+                      },
+                    ),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        const Text('自定义快进/快退秒数', style: TextStyle(fontSize: 15)),
+                        const Spacer(),
+                        Text(
+                          '${player.customSeekSeconds} 秒',
+                          style: TextStyle(fontSize: 14, color: AppTheme.accent, fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: player.customSeekSeconds.toDouble(),
+                      min: 5,
+                      max: 120,
+                      divisions: 23,
+                      activeColor: AppTheme.accent,
+                      inactiveColor: AppTheme.divider,
+                      onChanged: (v) {
+                        player.setCustomSeekSeconds(v.round());
+                        setSheet(() {});
+                      },
                     ),
                   ],
                 ),
@@ -1112,6 +1224,28 @@ class _PlayerPageState extends State<PlayerPage> {
             ),
             ActionChip(
               avatar: Icon(
+                Icons.tune_rounded,
+                size: 16,
+                color: player.prevNextMode == 1 || player.pauseRewindEnabled
+                    ? AppTheme.accent
+                    : AppTheme.textSub,
+              ),
+              label: Text(
+                '播放设置',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: player.prevNextMode == 1 || player.pauseRewindEnabled
+                      ? AppTheme.accent
+                      : null,
+                  fontWeight: player.prevNextMode == 1 || player.pauseRewindEnabled
+                      ? FontWeight.w700
+                      : null,
+                ),
+              ),
+              onPressed: () => _showPlaybackSettings(player),
+            ),
+            ActionChip(
+              avatar: Icon(
                 player.volumePct == 0
                     ? Icons.volume_off_rounded
                     : player.volumePct > 1.0
@@ -1286,16 +1420,19 @@ class _PlayerPageState extends State<PlayerPage> {
   }
 }
 
-/// 快进/快退 15 秒图标：圆形箭头叠加数字
+/// 快进/快退图标：圆形箭头叠加数字
 /// forward 用同一个 replay 图标旋转 180°，保证两个方向外观一致
 class _Seek15Icon extends StatelessWidget {
   final bool forward;
   final Color color;
   final double size;
+  final String? customText; // 新增：支持自定义显示的文字
+
   const _Seek15Icon({
     required this.forward,
     required this.color,
     this.size = 30,
+    this.customText, // 添加构造函数
   });
 
   @override
@@ -1311,7 +1448,7 @@ class _Seek15Icon extends StatelessWidget {
             child: Icon(Icons.replay_rounded, size: size, color: color),
           ),
           Text(
-            '15',
+            customText ?? '15', // 如果有自定义文字就显示自定义的
             style: TextStyle(
               fontSize: size * 0.3,
               fontWeight: FontWeight.w700,
