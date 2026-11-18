@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.StatFs
 import android.provider.Settings
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -59,6 +60,27 @@ class MainActivity : AudioServiceActivity() {
         } catch (_: Exception) {
             // 个别 ROM 限制注册时忽略，不影响正常播放
         }
+    }
+
+    // 拦截硬件按键（方向盘、蓝牙耳机），强行转换为系统媒体广播
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                try {
+                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    // 伪造一个按下的 KeyEvent，让 MediaButtonReceiver 去处理
+                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
+                    sendBroadcast(intent)
+                } catch (_: Exception) {}
+                // 拦截该按键，防止车机系统自带的播放器被同时唤醒
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
