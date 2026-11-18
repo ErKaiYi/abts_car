@@ -153,7 +153,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPrevNextMode, mode);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     notifyListeners();
   }
 
@@ -162,7 +164,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefSeekSeconds, _customSeekSeconds);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     notifyListeners();
   }
 
@@ -171,7 +175,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPauseRewindSeconds, _pauseRewindSeconds);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     notifyListeners();
   }
 
@@ -180,7 +186,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefPauseRewind, enabled);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     notifyListeners();
   }
 
@@ -202,7 +210,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefRate, _rate);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     await _player.setRate(_rate);
     _pushState(force: true);
     notifyListeners();
@@ -238,7 +248,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefVolume, _volumePct);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
     await _applyVolume();
     notifyListeners();
   }
@@ -565,7 +577,9 @@ class BookPlayer extends ChangeNotifier {
     unawaited(() async {
       try {
         await Permission.notification.request();
-      } catch (_) {}
+      } catch (_) {
+        // 忽略
+      }
     }());
   }
 
@@ -708,13 +722,17 @@ class BookPlayer extends ChangeNotifier {
           try {
             await _player.open(Media(localPath));
             opened = true;
-          } catch (e2) {}
+          } catch (e2) {
+            // 忽略
+          }
         }
         if (opened) {
           try {
             if (_rate != 1.0) await _player.setRate(_rate);
             if (resumeMs > 0) await _seekToResume(resumeMs);
-          } catch (e) {}
+          } catch (e) {
+            // 忽略
+          }
           ok = true;
           _playbackUrl = null;
           _mediaReady = true;
@@ -800,7 +818,9 @@ class BookPlayer extends ChangeNotifier {
       await _player.stream.duration
           .firstWhere((d) => d > Duration.zero)
           .timeout(const Duration(seconds: 4));
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
   }
 
   Map<String, String> _streamHeaders() => const {
@@ -1112,7 +1132,9 @@ class BookPlayer extends ChangeNotifier {
     _session++;
     try {
       await _player.stop();
-    } catch (e) {}
+    } catch (e) {
+      // 忽略
+    }
     unawaited(AudioFocus.instance.abandon());
     _loaded = false;
     _playbackUrl = null;
@@ -1197,7 +1219,9 @@ class BookPlayer extends ChangeNotifier {
     try {
       final list = await _api.pageList(bvid);
       if (list.isNotEmpty) return (chapters: list, complete: true);
-    } catch (_) {}
+    } catch (_) {
+      // 忽略
+    }
 
     final saved = _shelf.byBvid(bvid)?.book.chapters;
     if (saved != null && saved.isNotEmpty) {
