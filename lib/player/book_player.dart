@@ -110,6 +110,19 @@ class BookPlayer extends ChangeNotifier {
   bool _ducking = false;
   double _volumeBeforeDuck = 1.0;
 
+  // ---------- 自定义快进快退与按键模式 ----------
+  static const _prefSeekSeconds = 'abts_seek_seconds';
+  static const _prefPrevNextMode = 'abts_prev_next_mode'; // 0: 切集, 1: 快进快退
+  static const _prefPauseRewind = 'abts_pause_rewind';
+
+  int _customSeekSeconds = 15; // 默认15秒
+  int _prevNextMode = 0; // 默认上一曲/下一曲切集
+  bool _pauseRewindEnabled = true; // 暂停时是否回退
+
+  int get customSeekSeconds => _customSeekSeconds;
+  int get prevNextMode => _prevNextMode;
+  bool get pauseRewindEnabled => _pauseRewindEnabled;
+
   Player get player => _player;
   Book? get book => _book;
   List<Chapter> get chapters => _chapters;
@@ -148,6 +161,49 @@ class BookPlayer extends ChangeNotifier {
   String get rateLabel {
     final r = _rate;
     return '${r % 1 == 0 ? r.toStringAsFixed(1) : r.toStringAsFixed(2).replaceAll(RegExp(r'0$'), '')}x';
+  }
+
+  /// 载入播放设置
+  Future<void> loadPlaybackSettings() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _customSeekSeconds = prefs.getInt(_prefSeekSeconds) ?? 15;
+      _prevNextMode = prefs.getInt(_prefPrevNextMode) ?? 0;
+      _pauseRewindEnabled = prefs.getBool(_prefPauseRewind) ?? true;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('[BookPlayer] load playback settings failed: $e');
+    }
+  }
+
+  /// 设置上一曲/下一曲模式
+  Future<void> setPrevNextMode(int mode) async {
+    _prevNextMode = mode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefPrevNextMode, mode);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// 设置自定义快进快退秒数
+  Future<void> setCustomSeekSeconds(int seconds) async {
+    _customSeekSeconds = seconds.clamp(5, 120); // 限制在5-120秒之间
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_prefSeekSeconds, _customSeekSeconds);
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  /// 设置是否开启暂停回退
+  Future<void> setPauseRewindEnabled(bool enabled) async {
+    _pauseRewindEnabled = enabled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefPauseRewind, enabled);
+    } catch (_) {}
+    notifyListeners();
   }
 
   /// 载入持久化的倍速（启动时调用）
@@ -267,6 +323,7 @@ class BookPlayer extends ChangeNotifier {
     _ready = true;
     unawaited(loadRate());
     unawaited(loadVolume());
+    unawaited(loadPlaybackSettings()); // 加载播放设置
     _player.stream.completed.listen((_) async {
       // media_kit 在 open() 换源时可能抛出一次伪 completed，
       // 用「加载中」与「位置未到结尾」两道判断过滤，避免乱跳章节
@@ -1066,18 +1123,90 @@ class BookPlayer extends ChangeNotifier {
     _pausedByInterruption = false;
     await _player.pause();
     unawaited(AudioFocus.instance.abandon());
+
+    // 暂停后自动回退
+    if (_pauseRewindEnabled && _customSeekSeconds > 0) {
+      final currentPos = currentPosition;
+      final targetPos = currentPos - Duration(seconds: _customSeekSeconds);
+      // 如果回退后小于0，就停在0
+      await _player.seek(targetPos < Duration.zero ? Duration.zero : targetPos);
+    }
+
     _pushState(force: true);
     flushProgress();
   }
 
+  /// 智能快进/快退（支持跨越集数）
+  Future<void> smartSeek(int seconds, {bool isForward = true}) async {
+    if (!_loaded) return;
+
+    final currentPos = currentPosition;
+    final duration = currentDuration;
+    // 如果时长还没加载出来，用章节自带的时长兜底
+    final totalDuration = duration > Duration.zero
+        ? duration
+        : Duration(seconds: currentChapter?.duration ?? 0);
+
+    final targetPos = currentPos + Duration(seconds: seconds);
+
+    if (isForward) {
+      // 快进：如果超出总时长，切换下一集
+      if (totalDuration > Duration.zero && targetPos >= totalDuration) {
+        if (hasNext) {
+          // 计算溢出到下一集的时间
+          final overflow = targetPos - totalDuration;
+          await playChapterIndex(_index + 1, offsetMs: overflow.inMilliseconds);
+        } else {
+          // 已经是最后一集，直接到结尾并暂停
+          await seek(totalDuration);
+          await pause();
+        }
+      } else {
+        await seek(targetPos);
+      }
+    } else {
+      // 快退：如果小于 0，切换上一集，并跳到上一集结尾处
+      if (targetPos < Duration.zero) {
+        if (hasPrev) {
+          // 回退到上一集的末尾（上一集时长 - 缺少的秒数）
+          final prevIdx = _index - 1;
+          final prevChapter = _chapters[prevIdx];
+          final prevTotal = Duration(seconds: prevChapter.duration);
+          // 如果缺少的秒数比上一集还长，直接到上一集开头
+          final targetMs = (prevTotal.inMilliseconds + targetPos.inMilliseconds)
+              .clamp(0, prevTotal.inMilliseconds);
+
+          await playChapterIndex(prevIdx, offsetMs: targetMs);
+        } else {
+          // 已经是第一集，停在0
+          await seek(Duration.zero);
+        }
+      } else {
+        await seek(targetPos);
+      }
+    }
+  }
+
   Future<void> next() async {
-    if (!hasNext) return;
-    await playChapterIndex(_index + 1);
+    if (_prevNextMode == 1) {
+      // 快进模式
+      await smartSeek(_customSeekSeconds, isForward: true);
+    } else {
+      // 正常切集模式
+      if (!hasNext) return;
+      await playChapterIndex(_index + 1);
+    }
   }
 
   Future<void> previous() async {
-    if (!hasPrev) return;
-    await playChapterIndex(_index - 1);
+    if (_prevNextMode == 1) {
+      // 快退模式
+      await smartSeek(-_customSeekSeconds, isForward: false);
+    } else {
+      // 正常切集模式
+      if (!hasPrev) return;
+      await playChapterIndex(_index - 1);
+    }
   }
 
   Future<void> seek(Duration to) async {
