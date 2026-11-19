@@ -714,18 +714,33 @@ class BookPlayer extends ChangeNotifier {
         try {
           await _player.open(Media(localPath));
           opened = true;
-        } catch (e) {
-          await Future<void>.delayed(const Duration(milliseconds: 350));
+                } catch (e) {
+          debugPrint('[BookPlayer] 首次打开本地缓存失败，准备重试: $e');
+
+          await Future<void>.delayed(
+            const Duration(milliseconds: 350),
+          );
+
           try {
             await _player.open(Media(localPath));
             opened = true;
-          } catch (e2) {}
+          } catch (e2) {
+            debugPrint('[BookPlayer] 重试打开本地缓存失败: $e2');
+          }
         }
+
         if (opened) {
           try {
-            if (_rate != 1.0) await _player.setRate(_rate);
-            if (resumeMs > 0) await _seekToResume(resumeMs);
-          } catch (e) {}
+            if (_rate != 1.0) {
+              await _player.setRate(_rate);
+            }
+
+            if (resumeMs > 0) {
+              await _seekToResume(resumeMs);
+            }
+          } catch (e) {
+            debugPrint('[BookPlayer] 设置倍速或恢复播放进度失败: $e');
+          }
           ok = true;
           _playbackUrl = null;
           _mediaReady = true;
