@@ -1,9 +1,9 @@
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 
 import 'book_player.dart';
 
-/// audio_service 桥接：把 BookPlayer 暴露为系统媒体会话，
-/// 提供锁屏/通知栏控制、后台播放（Android MediaSession）
+/// 将 BookPlayer 暴露为 Android 系统媒体会话
 class BiliAudioHandler extends BaseAudioHandler {
   BiliAudioHandler() {
     playbackState.add(
@@ -23,9 +23,10 @@ class BiliAudioHandler extends BaseAudioHandler {
           MediaAction.fastForward,
           MediaAction.play,
           MediaAction.pause,
+          MediaAction.playPause,
           MediaAction.stop,
         },
-        androidCompactActionIndices: [0, 1, 2],
+        androidCompactActionIndices: const [0, 1, 2],
         processingState: AudioProcessingState.idle,
         playing: false,
         updatePosition: Duration.zero,
@@ -37,12 +38,41 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
-    // 车机语音/方向盘「开始播放」：没有音源时接着上次的位置继续
+    debugPrint('[MediaKey] play()');
     await _player.resumeFromMediaCommand();
   }
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> pause() async {
+    debugPrint('[MediaKey] pause()');
+    await _player.pause();
+  }
+
+  /// 关键修复：处理方向盘、蓝牙耳机等媒体按键
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    debugPrint('[MediaKey] click: $button');
+
+    switch (button) {
+      case MediaButton.media:
+        // Android 将 MEDIA_PLAY、MEDIA_PAUSE、
+        // MEDIA_PLAY_PAUSE 等按键统一映射到这里。
+        if (_player.isPlaying) {
+          await _player.pause();
+        } else {
+          await _player.resumeFromMediaCommand();
+        }
+        break;
+
+      case MediaButton.next:
+        await _player.next();
+        break;
+
+      case MediaButton.previous:
+        await _player.previous();
+        break;
+    }
+  }
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
