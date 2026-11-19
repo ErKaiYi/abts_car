@@ -153,9 +153,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPrevNextMode, mode);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -164,9 +162,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefSeekSeconds, _customSeekSeconds);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -175,9 +171,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPauseRewindSeconds, _pauseRewindSeconds);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -186,9 +180,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefPauseRewind, enabled);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -210,9 +202,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefRate, _rate);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     await _player.setRate(_rate);
     _pushState(force: true);
     notifyListeners();
@@ -248,9 +238,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefVolume, _volumePct);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     await _applyVolume();
     notifyListeners();
   }
@@ -295,14 +283,57 @@ class BookPlayer extends ChangeNotifier {
     _audioHandler = h;
   }
 
+  // ================= 日志监控绝杀区 =================
+  Process? _logcatProcess;
+  bool _bydLogListening = false;
+
+  void _startBydLogListener() {
+    if (_bydLogListening || !Platform.isAndroid) return;
+    _bydLogListening = true;
+
+    unawaited(() async {
+      try {
+        // 执行底层的 logcat 命令，监听比亚迪系统(MediaCenterReceiver)的按键日志
+        _logcatProcess = await Process.start('logcat', [
+          '-v', 'time',
+          '-s', 'MediaCenterReceiver:D', '*:S'
+        ]);
+
+        _logcatProcess!.stdout
+            .transform(const SystemEncoding().decoder)
+            .listen((data) {
+          if (data.contains('action=ACTION_UP')) {
+            // 排除掉上一曲/下一曲，只抓播放/暂停
+            if (data.contains('KEYCODE_MEDIA_PLAY_PAUSE') ||
+                data.contains('KEYCODE_MEDIA_PLAY') ||
+                data.contains('KEYCODE_MEDIA_PAUSE') ||
+                data.contains('KEYCODE_HEADSETHOOK')) {
+              
+              debugPrint('[BYD_LOG] 捕获到物理按键日志，触发播放/暂停！');
+              togglePlay();
+            }
+          }
+        });
+
+        debugPrint('[BYD_LOG] 监听器已启动');
+      } catch (e) {
+        debugPrint('[BYD_LOG] 监听启动失败: $e');
+        _bydLogListening = false;
+      }
+    }());
+  }
+  // ==================================================
+
   void setup() {
     if (_ready) return;
     _ready = true;
     
-    // 修复：去掉了重复的 loadRate() 和 loadVolume()
     unawaited(loadRate());
     unawaited(loadVolume());
     unawaited(loadPlaybackSettings()); 
+    
+    // 【开启绝杀监听】
+    _startBydLogListener();
     
     _player.stream.completed.listen((_) async {
       if (_loading || !_loaded) return;
@@ -580,9 +611,7 @@ class BookPlayer extends ChangeNotifier {
     unawaited(() async {
       try {
         await Permission.notification.request();
-      } catch (_) {
-        // 忽略
-      }
+      } catch (_) {}
     }());
   }
 
@@ -725,17 +754,13 @@ class BookPlayer extends ChangeNotifier {
           try {
             await _player.open(Media(localPath));
             opened = true;
-          } catch (e2) {
-            // 忽略
-          }
+          } catch (e2) {}
         }
         if (opened) {
           try {
             if (_rate != 1.0) await _player.setRate(_rate);
             if (resumeMs > 0) await _seekToResume(resumeMs);
-          } catch (e) {
-            // 忽略
-          }
+          } catch (e) {}
           ok = true;
           _playbackUrl = null;
           _mediaReady = true;
@@ -821,9 +846,7 @@ class BookPlayer extends ChangeNotifier {
       await _player.stream.duration
           .firstWhere((d) => d > Duration.zero)
           .timeout(const Duration(seconds: 4));
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
   }
 
   Map<String, String> _streamHeaders() => const {
@@ -1135,9 +1158,7 @@ class BookPlayer extends ChangeNotifier {
     _session++;
     try {
       await _player.stop();
-    } catch (e) {
-      // 忽略
-    }
+    } catch (e) {}
     unawaited(AudioFocus.instance.abandon());
     _loaded = false;
     _playbackUrl = null;
@@ -1145,6 +1166,11 @@ class BookPlayer extends ChangeNotifier {
     _reconnecting = false;
     positionTick.value = Duration.zero;
     _positionTimer?.cancel();
+    
+    // 【新增】停掉日志监听
+    _logcatProcess?.kill();
+    _bydLogListening = false;
+
     final h = _audioHandler;
     if (h != null) {
       h.mediaItem.add(null);
@@ -1222,9 +1248,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final list = await _api.pageList(bvid);
       if (list.isNotEmpty) return (chapters: list, complete: true);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
 
     final saved = _shelf.byBvid(bvid)?.book.chapters;
     if (saved != null && saved.isNotEmpty) {
