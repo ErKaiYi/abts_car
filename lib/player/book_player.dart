@@ -1123,7 +1123,9 @@ class BookPlayer extends ChangeNotifier {
     _session++;
     try {
       await _player.stop();
-    } catch (e) {}
+    } catch (e) {
+      debugPrint('[BookPlayer] 停止播放器失败: $e');
+    }
 
     unawaited(AudioFocus.instance.abandon());
     _loaded = false;
