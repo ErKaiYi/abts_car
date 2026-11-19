@@ -1,3 +1,4 @@
+
 package dev.pages.abts
 
 import android.content.BroadcastReceiver
@@ -41,7 +42,7 @@ class MainActivity : AudioServiceActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         disableSystemFocusHighlight(window.decorView)
-        
+
         // 熄屏/亮屏广播
         try {
             val screenFilter = IntentFilter().apply {
@@ -151,7 +152,7 @@ class MainActivity : AudioServiceActivity() {
             } else {
                 registerReceiver(noisyReceiver, noisyFilter)
             }
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -166,7 +167,7 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
-        
+
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/audio_focus_events",
@@ -174,6 +175,7 @@ class MainActivity : AudioServiceActivity() {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 focusCallback = events
             }
+
             override fun onCancel(arguments: Any?) {
                 focusCallback = null
             }
@@ -188,7 +190,11 @@ class MainActivity : AudioServiceActivity() {
                 "saveImage" -> {
                     val base64 = call.argument<String>("base64")
                     val name = call.argument<String>("name") ?: "image"
-                    if (base64 == null) result.success(null) else result.success(saveImageToGallery(base64, name))
+                    if (base64 == null) {
+                        result.success(null)
+                    } else {
+                        result.success(saveImageToGallery(base64, name))
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -201,7 +207,11 @@ class MainActivity : AudioServiceActivity() {
             when (call.method) {
                 "open" -> {
                     val url = call.argument<String>("url")
-                    if (url.isNullOrBlank()) result.success(false) else result.success(openExternal(url))
+                    if (url.isNullOrBlank()) {
+                        result.success(false)
+                    } else {
+                        result.success(openExternal(url))
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -235,14 +245,20 @@ class MainActivity : AudioServiceActivity() {
                 "freeBytes" -> {
                     try {
                         val path = call.argument<String>("path")
-                        val stat = if (path.isNullOrBlank()) StatFs(filesDir.absolutePath) else StatFs(path)
-                        result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                            stat.availableBytes
+                        val stat = if (path.isNullOrBlank()) {
+                            StatFs(filesDir.absolutePath)
                         } else {
-                            @Suppress("DEPRECATION")
-                            stat.availableBlocks.toLong() * stat.blockSize.toLong()
-                        })
-                    } catch (e: Exception) {
+                            StatFs(path)
+                        }
+                        result.success(
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+                                stat.availableBytes
+                            } else {
+                                @Suppress("DEPRECATION")
+                                stat.availableBlocks.toLong() * stat.blockSize.toLong()
+                            }
+                        )
+                    } catch (_: Exception) {
                         result.success(-1L)
                     }
                 }
@@ -260,37 +276,49 @@ class MainActivity : AudioServiceActivity() {
                 "isLeanback" -> {
                     try {
                         val pm = packageManager
-                        val leanback = pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
+                        val leanback =
+                            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
+                            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
                         val touch = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-                        val dpad = resources.configuration.navigation == android.content.res.Configuration.NAVIGATION_DPAD
+                        val dpad =
+                            resources.configuration.navigation ==
+                            android.content.res.Configuration.NAVIGATION_DPAD
                         result.success((leanback && !touch) || (!touch && dpad))
-                    } catch (e: Exception) {
+                    } catch (_: Exception) {
                         result.success(false)
                     }
                 }
+
                 "restart" -> {
                     result.success(true)
                     try {
                         val intent = packageManager.getLaunchIntentForPackage(packageName)
-                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        intent?.addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        )
                         if (intent != null) startActivity(intent)
                     } catch (_: Exception) {}
+
                     android.os.Handler(mainLooper).postDelayed({
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 400)
                 }
+
                 "setFullscreen" -> {
                     val on = call.argument<Boolean>("on") ?: false
                     fullscreen = on
                     applyFullscreen(on)
                     result.success(true)
                 }
+
                 "statusBarInset" -> {
                     val inset = try {
                         val insets = window.decorView.rootWindowInsets
                         when {
                             insets == null -> 0
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> insets.getInsets(WindowInsets.Type.statusBars()).top
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                                insets.getInsets(WindowInsets.Type.statusBars()).top
                             else -> {
                                 @Suppress("DEPRECATION")
                                 insets.systemWindowInsetTop
@@ -301,18 +329,27 @@ class MainActivity : AudioServiceActivity() {
                     }
                     result.success(inset)
                 }
+
                 "exit" -> {
                     result.success(true)
                     try {
-                        stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
+                        stopService(
+                            Intent(
+                                this,
+                                com.ryanheise.audioservice.AudioService::class.java
+                            )
+                        )
                     } catch (_: Exception) {}
+
                     try {
                         finishAndRemoveTask()
                     } catch (_: Exception) {}
+
                     android.os.Handler(mainLooper).postDelayed({
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 300)
                 }
+
                 else -> result.notImplemented()
             }
         }
@@ -326,9 +363,15 @@ class MainActivity : AudioServiceActivity() {
                     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
+
                 "requestIgnore" -> {
                     try {
-                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+                        startActivity(
+                            Intent(
+                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:$packageName")
+                            )
+                        )
                     } catch (_: Exception) {
                         try {
                             startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
@@ -336,6 +379,7 @@ class MainActivity : AudioServiceActivity() {
                     }
                     result.success(true)
                 }
+
                 else -> result.notImplemented()
             }
         }
@@ -344,12 +388,14 @@ class MainActivity : AudioServiceActivity() {
     override fun onDestroy() {
         try {
             unregisterReceiver(noisyReceiver)
-        } catch (e: Exception) {}
-        
+        } catch (_: Exception) {}
+
         try {
-            unregisterReceiver(bydMediaReceiver)
-        } catch (e: Exception) {}
-        
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+
+        abandonFocus()
+
         super.onDestroy()
     }
 
@@ -361,19 +407,20 @@ class MainActivity : AudioServiceActivity() {
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_MEDIA)
                         .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build(),
+                        .build()
                 )
                 .setOnAudioFocusChangeListener(focusListener)
                 .setAcceptsDelayedFocusGain(true)
                 .build()
             focusRequest = request
             val r = am.requestAudioFocus(request)
-            r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED || r == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
+            r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED ||
+                r == AudioManager.AUDIOFOCUS_REQUEST_DELAYED
         } else {
             val r = am.requestAudioFocus(
                 focusListener,
                 AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN,
+                AudioManager.AUDIOFOCUS_GAIN
             )
             r == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         }
@@ -397,7 +444,7 @@ class MainActivity : AudioServiceActivity() {
             }
             startActivity(intent)
             true
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             false
         }
     }
@@ -410,17 +457,19 @@ class MainActivity : AudioServiceActivity() {
                 cacheNotifyManager = n
                 n
             }
+
             val b = android.app.Notification.Builder(this, CACHE_CHANNEL_ID)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+
             if (progress >= 0) {
                 b.setProgress(100, progress, false)
             }
             nm.notify(CACHE_NOTIFY_ID, b.build())
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
     }
 
     private fun createCacheChannel(nm: NotificationManager) {
@@ -428,7 +477,7 @@ class MainActivity : AudioServiceActivity() {
             val ch = android.app.NotificationChannel(
                 CACHE_CHANNEL_ID,
                 "离线缓存",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_LOW
             )
             ch.setShowBadge(false)
             ch.enableVibration(false)
@@ -439,46 +488,87 @@ class MainActivity : AudioServiceActivity() {
 
     private fun saveImageToGallery(base64: String, name: String): String? {
         return try {
-            val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
-            val bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                ?: return null
+            val bytes = android.util.Base64.decode(
+                base64,
+                android.util.Base64.DEFAULT
+            )
+            val bitmap = android.graphics.BitmapFactory.decodeByteArray(
+                bytes,
+                0,
+                bytes.size
+            ) ?: return null
+
             val fileName = if (name.endsWith(".png")) name else "$name.png"
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 val values = android.content.ContentValues().apply {
-                    put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
-                    put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/阿B听书")
-                    put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+                    put(
+                        android.provider.MediaStore.Images.Media.DISPLAY_NAME,
+                        fileName
+                    )
+                    put(
+                        android.provider.MediaStore.Images.Media.MIME_TYPE,
+                        "image/png"
+                    )
+                    put(
+                        android.provider.MediaStore.Images.Media.RELATIVE_PATH,
+                        "Pictures/阿B听书"
+                    )
+                    put(
+                        android.provider.MediaStore.Images.Media.IS_PENDING,
+                        1
+                    )
                 }
-                val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
+
+                val uri = contentResolver.insert(
+                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                    values
+                ) ?: return null
+
                 contentResolver.openOutputStream(uri)?.use { os ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
+                    bitmap.compress(
+                        android.graphics.Bitmap.CompressFormat.PNG,
+                        100,
+                        os
+                    )
                 }
+
                 values.clear()
-                values.put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+                values.put(
+                    android.provider.MediaStore.Images.Media.IS_PENDING,
+                    0
+                )
                 contentResolver.update(uri, values, null, null)
                 uri.toString()
             } else {
                 @Suppress("DEPRECATION")
                 val dir = java.io.File(
-                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
-                    "阿B听书",
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_PICTURES
+                    ),
+                    "阿B听书"
                 )
+
                 if (!dir.exists() && !dir.mkdirs()) return null
+
                 val file = java.io.File(dir, fileName)
                 java.io.FileOutputStream(file).use { os ->
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
+                    bitmap.compress(
+                        android.graphics.Bitmap.CompressFormat.PNG,
+                        100,
+                        os
+                    )
                 }
+
                 android.media.MediaScannerConnection.scanFile(
                     this,
                     arrayOf(file.absolutePath),
                     arrayOf("image/png"),
-                    null,
+                    null
                 )
                 file.absolutePath
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }
