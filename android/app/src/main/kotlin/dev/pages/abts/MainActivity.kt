@@ -60,6 +60,41 @@ class MainActivity : AudioServiceActivity() {
         } catch (_: Exception) {
             // 个别 ROM 限制注册时忽略，不影响正常播放
         }
+        
+        // 【新增】注册比亚迪私有媒体按键广播
+        try {
+            val bydFilter = IntentFilter("byd.intent.action.MEDIA_BUTTON")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(bydMediaReceiver, bydFilter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(bydMediaReceiver, bydFilter)
+            }
+        } catch (_: Exception) {}
+    }
+
+    // 【新增】专门监听比亚迪私有的媒体按键广播
+    private val bydMediaReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            println("BYD_KEY_DEBUG: 收到比亚迪私有广播了！Action = ${intent?.action}")
+            
+            val action = intent?.action
+            if (action == "byd.intent.action.MEDIA_BUTTON") {
+                val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                if (event != null && event.action == KeyEvent.ACTION_DOWN) {
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                        KeyEvent.KEYCODE_HEADSETHOOK,
+                        KeyEvent.KEYCODE_MEDIA_PLAY,
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                            // 收到播放/暂停，伪造一个标准广播发给 audio_service
+                            val standardIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                            standardIntent.putExtra(Intent.EXTRA_KEY_EVENT, event)
+                            sendBroadcast(standardIntent)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // 拦截硬件按键（方向盘、蓝牙耳机），强行转换为系统媒体广播
@@ -97,10 +132,6 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /// 全屏：只用纯净的窗口级 FLAG_FULLSCREEN + 布局标志。
-    ///
-    /// 不用 FLAG_LAYOUT_NO_LIMITS 与沉浸式 SYSTEM_UI_FLAG_HIDE_*：
-    /// 部分车机的自绘状态栏只认窗口级全屏标志，混入 LAYOUT_NO_LIMITS/沉浸式
-    /// flags 后反而会一直显示。
     private fun applyFullscreen(on: Boolean) {
         val w = window ?: return
         if (on) {
@@ -127,8 +158,7 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /// Flutter 自己绘制焦点态；关掉 Android 给 FlutterView 套的默认焦点框，
-    /// 否则电视上用遥控器操作时整个画面四周会出现一圈系统配色的边框。
+    /// Flutter 自己绘制焦点态；关掉 Android 给 FlutterView 套的默认焦点框
     private fun disableSystemFocusHighlight(view: View) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         view.defaultFocusHighlightEnabled = false
@@ -148,8 +178,7 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /// 熄屏 / 亮屏：车机熄火休眠时会熄屏，通知 Dart 侧暂停并禁止后台自动续播；
-    /// 亮屏只用于让 Dart 知晓状态，是否允许播放由「应用是否回到前台」决定
+    /// 熄屏 / 亮屏：车机熄火休眠时会熄屏，通知 Dart 侧暂停并禁止后台自动续播
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -172,22 +201,15 @@ class MainActivity : AudioServiceActivity() {
     private val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_GAIN -> {
-                // 打断结束：通知 Dart 侧续播
                 focusCallback?.success("gained")
             }
-
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                // 来电/导航等暂时打断：暂停并等待恢复
                 focusCallback?.success("interrupted")
             }
-
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                // 短暂提示音：仅降低音量，不中断播放
                 focusCallback?.success("ducked")
             }
-
             AudioManager.AUDIOFOCUS_LOSS -> {
-                // 被其他播放器永久抢占：暂停且不自动恢复
                 focusCallback?.success("lost")
             }
         }
@@ -201,7 +223,6 @@ class MainActivity : AudioServiceActivity() {
         try {
             val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                // targetSdk 33+ 必须显式声明导出属性；系统受保护广播照常送达
                 registerReceiver(noisyReceiver, noisyFilter, Context.RECEIVER_NOT_EXPORTED)
             } else {
                 registerReceiver(noisyReceiver, noisyFilter)
@@ -307,8 +328,6 @@ class MainActivity : AudioServiceActivity() {
             when (call.method) {
                 "freeBytes" -> {
                     try {
-                        // 传入路径时按该分区算（缓存切到 SD 卡后要检测对应分区）；
-                        // 不传就按应用内部存储算
                         val path = call.argument<String>("path")
                         val stat = if (path.isNullOrBlank()) {
                             StatFs(filesDir.absolutePath)
@@ -346,7 +365,6 @@ class MainActivity : AudioServiceActivity() {
                                 pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
                         val touch =
                             pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-                        // 部分车机盒子未声明 leanback 特性，但用方向键导航且无触摸屏，同样按宽屏对待
                         val dpad = resources.configuration.navigation ==
                             android.content.res.Configuration.NAVIGATION_DPAD
                         result.success((leanback && !touch) || (!touch && dpad))
@@ -355,7 +373,6 @@ class MainActivity : AudioServiceActivity() {
                     }
                 }
 
-                // 重建布局参数后自动重启（切换「使用设备」为车机时使用）
                 "restart" -> {
                     result.success(true)
                     try {
@@ -364,15 +381,12 @@ class MainActivity : AudioServiceActivity() {
                             Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP,
                         )
                         if (intent != null) startActivity(intent)
-                    } catch (_: Exception) {
-                        // 个别车机限制自启动时忽略，用户手动重开同样生效
-                    }
+                    } catch (_: Exception) {}
                     android.os.Handler(mainLooper).postDelayed({
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 400)
                 }
 
-                // 全屏模式：纯净的窗口级全屏标志
                 "setFullscreen" -> {
                     val on = call.argument<Boolean>("on") ?: false
                     fullscreen = on
@@ -380,9 +394,6 @@ class MainActivity : AudioServiceActivity() {
                     result.success(true)
                 }
 
-                // 全屏后仍可见的系统状态栏高度（像素）。
-                // 部分车机的状态栏由厂商常驻覆盖层绘制，应用无权隐藏，
-                // Dart 侧据此把内容下移避让，避免被顶栏压住。
                 "statusBarInset" -> {
                     val inset = try {
                         val insets = window.decorView.rootWindowInsets
@@ -401,22 +412,16 @@ class MainActivity : AudioServiceActivity() {
                     result.success(inset)
                 }
 
-                // 完全退出：车机没有后台任务管理，结束前台服务与进程
                 "exit" -> {
                     result.success(true)
                     try {
                         stopService(
                             Intent(this, com.ryanheise.audioservice.AudioService::class.java),
                         )
-                    } catch (_: Exception) {
-                        // 服务未启动时忽略
-                    }
-                    // 一并移除最近任务里的条目，避免车机点开又回到旧画面
+                    } catch (_: Exception) {}
                     try {
                         finishAndRemoveTask()
-                    } catch (_: Exception) {
-                        // 个别 ROM 不支持时忽略
-                    }
+                    } catch (_: Exception) {}
                     android.os.Handler(mainLooper).postDelayed({
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 300)
@@ -448,9 +453,7 @@ class MainActivity : AudioServiceActivity() {
                     } catch (_: Exception) {
                         try {
                             startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
-                        } catch (_: Exception) {
-                            // 系统无对应设置页时忽略
-                        }
+                        } catch (_: Exception) {}
                     }
                     result.success(true)
                 }
@@ -466,6 +469,14 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             // 未注册过则忽略
         }
+        
+        // 【新增】注销比亚迪私有广播
+        try {
+            unregisterReceiver(bydMediaReceiver)
+        } catch (e: Exception) {
+            // 忽略
+        }
+        
         super.onDestroy()
     }
 
@@ -498,7 +509,6 @@ class MainActivity : AudioServiceActivity() {
     private fun abandonFocus() {
         val am = audioManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // 必须使用同一个 AudioFocusRequest 实例才能真正释放
             val request = focusRequest ?: return
             am.abandonAudioFocusRequest(request)
             focusRequest = null
