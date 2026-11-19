@@ -15,7 +15,6 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.StatFs
 import android.provider.Settings
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -56,71 +55,8 @@ class MainActivity : AudioServiceActivity() {
             }
         } catch (_: Exception) {}
 
-        // 【更新】拦截“按键自定义”App的私有广播
-        try {
-            val bydFilter = IntentFilter().apply {
-                addAction("byd.intent.action.CUSTOM_KEY")
-                addAction("byd.intent.action.CUSTOM_KEY_LP")
-                addAction("byd.intent.action.MEDIA_BUTTON")
-            }
-            // 把优先级拉满，企图比系统自带的更早收到
-            bydFilter.priority = 2147483647
-            
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(bydMediaReceiver, bydFilter, Context.RECEIVER_EXPORTED)
-            } else {
-                registerReceiver(bydMediaReceiver, bydFilter)
-            }
-        } catch (_: Exception) {}
-    }
-
-    // 【更新】监听自定义按键广播
-    private val bydMediaReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val action = intent?.action
-            println("BYD_KEY_DEBUG: 拦截到广播！Action = $action")
-            
-            // 打印所有附带的数据，方便我们在 logcat 里查看到底发了什么
-            intent?.extras?.let { bundle ->
-                for (key in bundle.keySet()) {
-                    println("BYD_KEY_DEBUG: 附加数据 -> $key = ${bundle.get(key)}")
-                }
-            }
-
-            // 无论是标准的媒体按键，还是比亚迪私有的 CUSTOM_KEY 广播
-            if (action == "byd.intent.action.MEDIA_BUTTON" || 
-                action == "byd.intent.action.CUSTOM_KEY" || 
-                action == "byd.intent.action.CUSTOM_KEY_LP") {
-                
-                // 这里我们暂时盲目地认为只要收到这个广播，就是播放/暂停。
-                // （如果有副作用，等抓到了具体传了什么参数，我们再写 if 判断）
-                try {
-                    val standardIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    standardIntent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
-                    sendBroadcast(standardIntent)
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    // 拦截硬件按键（如果是走标准通道的话）
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        when (keyCode) {
-            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-            KeyEvent.KEYCODE_HEADSETHOOK,
-            KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                try {
-                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
-                    sendBroadcast(intent)
-                } catch (_: Exception) {}
-                return true
-            }
-        }
-        return super.onKeyDown(keyCode, event)
+        // 不再自行拦截 BYD 私有按键广播或模拟 ACTION_MEDIA_BUTTON。
+        // 方向盘媒体按键交由 Android AudioSession/AudioService 标准媒体会话处理。
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
