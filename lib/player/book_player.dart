@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:io';
 
@@ -22,7 +23,7 @@ import '../services/umeng_analytics.dart';
 enum CachePlayOutcome { okOffline, okOnline, fileMissing, failed }
 enum ShelfPlayOutcome { ok, bookGone, loadFailed }
 
-/// 听书播放器：按"章节"连播 + 断点续播 + 睡眠定时 + 系统媒体会话
+/// 听书播放器：按章节连播 + 断点续播 + 睡眠定时 + 系统媒体会话
 class BookPlayer extends ChangeNotifier {
   BookPlayer._();
   static final BookPlayer instance = BookPlayer._();
@@ -76,7 +77,7 @@ class BookPlayer extends ChangeNotifier {
 
   bool _pausedByInterruption = false;
 
-  /// 允许后台/媒体键自动续播（改为默认 true，解决车机按键无效问题）
+  /// 允许后台/媒体键自动续播
   bool _playAllowed = true;
 
   static const double _duckedVolume = 0.05;
@@ -85,16 +86,15 @@ class BookPlayer extends ChangeNotifier {
 
   // ---------- 自定义快进快退与按键模式 ----------
   static const _prefSeekSeconds = 'abts_seek_seconds';
-  static const _prefPauseRewindSeconds = 'abts_pause_rewind_seconds'; 
-  static const _prefPrevNextMode = 'abts_prev_next_mode'; 
+  static const _prefPauseRewindSeconds = 'abts_pause_rewind_seconds';
+  static const _prefPrevNextMode = 'abts_prev_next_mode';
   static const _prefPauseRewind = 'abts_pause_rewind';
 
-  int _customSeekSeconds = 15; 
-  int _pauseRewindSeconds = 3; 
-  int _prevNextMode = 0; 
-  bool _pauseRewindEnabled = true; 
+  int _customSeekSeconds = 15;
+  int _pauseRewindSeconds = 3;
+  int _prevNextMode = 0;
+  bool _pauseRewindEnabled = true;
 
-  // 记录在暂停时，下次播放需要跳转到哪里
   Duration? _pendingResumeSeek;
 
   int get customSeekSeconds => _customSeekSeconds;
@@ -153,9 +153,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPrevNextMode, mode);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -164,9 +162,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefSeekSeconds, _customSeekSeconds);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -175,9 +171,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefPauseRewindSeconds, _pauseRewindSeconds);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -186,9 +180,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefPauseRewind, enabled);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -210,9 +202,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefRate, _rate);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     await _player.setRate(_rate);
     _pushState(force: true);
     notifyListeners();
@@ -248,9 +238,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setDouble(_prefVolume, _volumePct);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
     await _applyVolume();
     notifyListeners();
   }
@@ -295,58 +283,14 @@ class BookPlayer extends ChangeNotifier {
     _audioHandler = h;
   }
 
-  // ================= 日志监控绝杀区 =================
-  Process? _logcatProcess;
-  bool _bydLogListening = false;
-
-  void _startBydLogListener() {
-    if (_bydLogListening || !Platform.isAndroid) return;
-    _bydLogListening = true;
-
-    unawaited(() async {
-      try {
-        // 执行底层的 logcat 命令，监听比亚迪系统(MediaCenterReceiver)的按键日志
-        _logcatProcess = await Process.start('logcat', [
-          '-v', 'time',
-          '-s', 'MediaCenterReceiver:D', '*:S'
-        ]);
-
-        _logcatProcess!.stdout
-            .transform(const SystemEncoding().decoder)
-            .listen((data) {
-          if (data.contains('action=ACTION_UP')) {
-            // 排除掉上一曲/下一曲，只抓播放/暂停
-            if (data.contains('KEYCODE_MEDIA_PLAY_PAUSE') ||
-                data.contains('KEYCODE_MEDIA_PLAY') ||
-                data.contains('KEYCODE_MEDIA_PAUSE') ||
-                data.contains('KEYCODE_HEADSETHOOK')) {
-              
-              debugPrint('[BYD_LOG] 捕获到物理按键日志，触发播放/暂停！');
-              togglePlay();
-            }
-          }
-        });
-
-        debugPrint('[BYD_LOG] 监听器已启动');
-      } catch (e) {
-        debugPrint('[BYD_LOG] 监听启动失败: $e');
-        _bydLogListening = false;
-      }
-    }());
-  }
-  // ==================================================
-
   void setup() {
     if (_ready) return;
     _ready = true;
-    
+
     unawaited(loadRate());
     unawaited(loadVolume());
-    unawaited(loadPlaybackSettings()); 
-    
-    // 【开启绝杀监听】
-    _startBydLogListener();
-    
+    unawaited(loadPlaybackSettings());
+
     _player.stream.completed.listen((_) async {
       if (_loading || !_loaded) return;
       final dur = currentDuration;
@@ -373,6 +317,7 @@ class BookPlayer extends ChangeNotifier {
         notifyListeners();
       }
     });
+
     _player.stream.error.listen((e) async {
       if (_reconnecting) return;
       _loading = false;
@@ -383,6 +328,7 @@ class BookPlayer extends ChangeNotifier {
       _error = '播放失败，请稍后重试';
       notifyListeners();
     });
+
     _player.stream.position.listen((p) {
       positionTick.value = p;
       _tickSave();
@@ -390,16 +336,19 @@ class BookPlayer extends ChangeNotifier {
       _tallyPlayTime();
       _markDoneIfReached(p);
     });
+
     _player.stream.playing.listen((_) {
       _lastPos = currentPosition;
       _lastPosAt = DateTime.now();
       _pushState(force: true);
       notifyListeners();
     });
+
     _player.stream.buffering.listen((_) {
       _pushState();
       notifyListeners();
     });
+
     _player.stream.duration.listen((_) {
       _pushState(force: true);
       notifyListeners();
@@ -417,7 +366,8 @@ class BookPlayer extends ChangeNotifier {
         _lastPosAt = DateTime.now();
         return;
       }
-      if (DateTime.now().difference(_lastPosAt) > const Duration(seconds: 40)) {
+      if (DateTime.now().difference(_lastPosAt) >
+          const Duration(seconds: 40)) {
         unawaited(_reconnect());
       }
     });
@@ -623,13 +573,12 @@ class BookPlayer extends ChangeNotifier {
     unawaited(() async {
       try {
         await Permission.notification.request();
-      } catch (_) {
-        // 忽略
-      }
+      } catch (_) {}
     }());
   }
 
-  Future<bool> playBook(Book book, {int resumeIndex = 0, int resumeMs = 0}) async {
+  Future<bool> playBook(Book book,
+      {int resumeIndex = 0, int resumeMs = 0}) async {
     _ensureNotificationPermission();
     List<Chapter> chapters;
     if (_book?.bvid == book.bvid && _chapters.isNotEmpty) {
@@ -680,7 +629,8 @@ class BookPlayer extends ChangeNotifier {
     }
 
     if (chapters.isNotEmpty) {
-      final idx = sb.lastChapterIndex >= 0 && sb.lastChapterIndex < chapters.length
+      final idx = sb.lastChapterIndex >= 0 &&
+              sb.lastChapterIndex < chapters.length
           ? sb.lastChapterIndex
           : 0;
       final ok = await _loadTarget(idx,
@@ -696,7 +646,8 @@ class BookPlayer extends ChangeNotifier {
       ];
       for (final c in ordered) {
         final r = await playCachedEntry(book.bvid, c.cid, book);
-        if (r == CachePlayOutcome.okOffline || r == CachePlayOutcome.okOnline) {
+        if (r == CachePlayOutcome.okOffline ||
+            r == CachePlayOutcome.okOnline) {
           return ShelfPlayOutcome.ok;
         }
         if (r == CachePlayOutcome.failed) return ShelfPlayOutcome.loadFailed;
@@ -768,17 +719,13 @@ class BookPlayer extends ChangeNotifier {
           try {
             await _player.open(Media(localPath));
             opened = true;
-          } catch (e2) {
-            // 忽略
-          }
+          } catch (e2) {}
         }
         if (opened) {
           try {
             if (_rate != 1.0) await _player.setRate(_rate);
             if (resumeMs > 0) await _seekToResume(resumeMs);
-          } catch (e) {
-            // 忽略
-          }
+          } catch (e) {}
           ok = true;
           _playbackUrl = null;
           _mediaReady = true;
@@ -864,9 +811,7 @@ class BookPlayer extends ChangeNotifier {
       await _player.stream.duration
           .firstWhere((d) => d > Duration.zero)
           .timeout(const Duration(seconds: 4));
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
   }
 
   Map<String, String> _streamHeaders() => const {
@@ -894,7 +839,8 @@ class BookPlayer extends ChangeNotifier {
       }
     }
 
-    final aac = [...audio.tracks]..sort((a, b) => b.bandwidth.compareTo(a.bandwidth));
+    final aac = [...audio.tracks]
+      ..sort((a, b) => b.bandwidth.compareTo(a.bandwidth));
     for (final t in aac) {
       add(t);
     }
@@ -969,6 +915,7 @@ class BookPlayer extends ChangeNotifier {
           MediaAction.seekBackward,
           MediaAction.play,
           MediaAction.pause,
+          MediaAction.playPause,
           MediaAction.stop,
         },
         androidCompactActionIndices: const [0, 1, 2],
@@ -994,17 +941,15 @@ class BookPlayer extends ChangeNotifier {
   Future<void> resume() async {
     _pausedByInterruption = false;
     await _restoreVolumeIfDucked();
-    
+
     if (_loaded && !_mediaReady && !_reconnecting) {
       final ok = await _reconnect();
       if (ok) return;
     }
 
-    // 先让播放器继续播放（瞬间出声，解决卡顿问题）
     await _player.play();
     unawaited(AudioFocus.instance.request());
-    
-    // 然后再在后台悄悄执行跳转，实现丝滑回退
+
     if (_pendingResumeSeek != null) {
       final target = _pendingResumeSeek!;
       _pendingResumeSeek = null;
@@ -1014,13 +959,13 @@ class BookPlayer extends ChangeNotifier {
     _pushState(force: true);
   }
 
-  /// 媒体会话（车机语音 / 方向盘 / 蓝牙按键）发起的「播放」
+  /// 媒体会话（车机语音 / 方向盘 / 蓝牙按键）发起的播放
   Future<bool> resumeFromMediaCommand() async {
     if (_loaded) {
       await resume();
       return true;
     }
-    
+
     final current = _book;
     if (current != null && _chapters.isNotEmpty) {
       final saved = _shelf.byBvid(current.bvid);
@@ -1044,7 +989,7 @@ class BookPlayer extends ChangeNotifier {
 
   Future<void> pause() async {
     _pausedByInterruption = false;
-    // 暂停时记录下来该回退到哪里，不要立刻 seek，否则会卡死引擎
+
     if (_pauseRewindEnabled && _pauseRewindSeconds > 0) {
       final currentPos = currentPosition;
       final targetPos = currentPos - Duration(seconds: _pauseRewindSeconds);
@@ -1178,9 +1123,8 @@ class BookPlayer extends ChangeNotifier {
     _session++;
     try {
       await _player.stop();
-    } catch (e) {
-      // 忽略
-    }
+    } catch (e) {}
+
     unawaited(AudioFocus.instance.abandon());
     _loaded = false;
     _playbackUrl = null;
@@ -1188,10 +1132,6 @@ class BookPlayer extends ChangeNotifier {
     _reconnecting = false;
     positionTick.value = Duration.zero;
     _positionTimer?.cancel();
-    
-    // 停掉日志监听
-    _logcatProcess?.kill();
-    _bydLogListening = false;
 
     final h = _audioHandler;
     if (h != null) {
@@ -1270,9 +1210,7 @@ class BookPlayer extends ChangeNotifier {
     try {
       final list = await _api.pageList(bvid);
       if (list.isNotEmpty) return (chapters: list, complete: true);
-    } catch (_) {
-      // 忽略
-    }
+    } catch (_) {}
 
     final saved = _shelf.byBvid(bvid)?.book.chapters;
     if (saved != null && saved.isNotEmpty) {
@@ -1297,8 +1235,15 @@ class BookPlayer extends ChangeNotifier {
     var index = chapters.indexWhere((c) => c.cid == cid);
     if (index < 0) {
       final fromCache = _cache.entriesOf(bvid)
-          .firstWhere((e) => e.cid == cid, orElse: () => CacheEntry(
-              bvid: bvid, cid: cid, bookTitle: book.cleanTitle, chapterTitle: ''));
+          .firstWhere(
+            (e) => e.cid == cid,
+            orElse: () => CacheEntry(
+              bvid: bvid,
+              cid: cid,
+              bookTitle: book.cleanTitle,
+              chapterTitle: '',
+            ),
+          );
       chapters.add(fromCache.toChapter());
       index = chapters.length - 1;
     }
@@ -1309,19 +1254,24 @@ class BookPlayer extends ChangeNotifier {
       await _shelf.add(target);
       shelf = _shelf.byBvid(bvid);
     }
-    final resumeMs = (shelf != null && shelf.lastCid == cid) ? shelf.positionMs : 0;
+    final resumeMs =
+        (shelf != null && shelf.lastCid == cid) ? shelf.positionMs : 0;
 
-    final ok = await _loadTarget(index,
-        resumeMs: resumeMs,
-        newBook: target,
-        newChapters: chapters,
-        chaptersComplete: resolved.complete);
+    final ok = await _loadTarget(
+      index,
+      resumeMs: resumeMs,
+      newBook: target,
+      newChapters: chapters,
+      chaptersComplete: resolved.complete,
+    );
 
     if (!ok) {
       _cache.logEvent('缓存入口播放失败 $bvid/$cid');
       return CachePlayOutcome.failed;
     }
-    return _isOffline ? CachePlayOutcome.okOffline : CachePlayOutcome.okOnline;
+    return _isOffline
+        ? CachePlayOutcome.okOffline
+        : CachePlayOutcome.okOnline;
   }
 
   Future<String?> resolveUrlFor(String bvid, int cid) async {
@@ -1344,7 +1294,8 @@ class BookPlayer extends ChangeNotifier {
         }
       }
 
-      final aac = [...audio.tracks]..sort((a, b) => b.bandwidth.compareTo(a.bandwidth));
+      final aac = [...audio.tracks]
+        ..sort((a, b) => b.bandwidth.compareTo(a.bandwidth));
       for (final t in aac) {
         add(t);
       }
@@ -1352,7 +1303,10 @@ class BookPlayer extends ChangeNotifier {
       add(audio.dolby);
       final uniq = urls.toSet().toList();
       if (uniq.isEmpty) return null;
-      _urlCache[cid] = (url: uniq.first, ts: DateTime.now().millisecondsSinceEpoch);
+      _urlCache[cid] = (
+        url: uniq.first,
+        ts: DateTime.now().millisecondsSinceEpoch
+      );
       if (_urlCache.length > 12) {
         _urlCache.remove(_urlCache.keys.first);
       }
@@ -1371,6 +1325,7 @@ class BookPlayer extends ChangeNotifier {
   bool get buffering => _player.state.buffering;
 
   Timer? _lastSaveTimer;
+
   void _tickSave() {
     if (currentChapter == null || _book == null) return;
     _lastSaveTimer?.cancel();
