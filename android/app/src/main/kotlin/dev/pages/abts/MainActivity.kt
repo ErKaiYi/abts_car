@@ -36,17 +36,14 @@ class MainActivity : AudioServiceActivity() {
     private var focusCallback: EventChannel.EventSink? = null
     private var focusRequest: AudioFocusRequest? = null
     private var cacheNotifyManager: NotificationManager? = null
-
-    /// 全屏模式（由 Dart 侧 `abts/device` 的 setFullscreen 控制）
     private var fullscreen = false
-
-    /// abts/device 通道：既接收 Dart 调用，也向 Dart 推送亮/熄屏事件
     private var deviceChannel: MethodChannel? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         disableSystemFocusHighlight(window.decorView)
-        // 熄屏/亮屏广播：熄屏即车机熄火休眠的前兆，用于暂停播放并禁止自动续播
+        
+        // 熄屏/亮屏广播
         try {
             val screenFilter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
@@ -57,13 +54,18 @@ class MainActivity : AudioServiceActivity() {
             } else {
                 registerReceiver(screenReceiver, screenFilter)
             }
-        } catch (_: Exception) {
-            // 个别 ROM 限制注册时忽略，不影响正常播放
-        }
-        
-        // 【新增】注册比亚迪私有媒体按键广播
+        } catch (_: Exception) {}
+
+        // 【更新】拦截“按键自定义”App的私有广播
         try {
-            val bydFilter = IntentFilter("byd.intent.action.MEDIA_BUTTON")
+            val bydFilter = IntentFilter().apply {
+                addAction("byd.intent.action.CUSTOM_KEY")
+                addAction("byd.intent.action.CUSTOM_KEY_LP")
+                addAction("byd.intent.action.MEDIA_BUTTON")
+            }
+            // 把优先级拉满，企图比系统自带的更早收到
+            bydFilter.priority = 2147483647
+            
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(bydMediaReceiver, bydFilter, Context.RECEIVER_EXPORTED)
             } else {
@@ -72,32 +74,37 @@ class MainActivity : AudioServiceActivity() {
         } catch (_: Exception) {}
     }
 
-    // 【新增】专门监听比亚迪私有的媒体按键广播
+    // 【更新】监听自定义按键广播
     private val bydMediaReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            println("BYD_KEY_DEBUG: 收到比亚迪私有广播了！Action = ${intent?.action}")
-            
             val action = intent?.action
-            if (action == "byd.intent.action.MEDIA_BUTTON") {
-                val event = intent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
-                if (event != null && event.action == KeyEvent.ACTION_DOWN) {
-                    when (event.keyCode) {
-                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
-                        KeyEvent.KEYCODE_HEADSETHOOK,
-                        KeyEvent.KEYCODE_MEDIA_PLAY,
-                        KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                            // 收到播放/暂停，伪造一个标准广播发给 audio_service
-                            val standardIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                            standardIntent.putExtra(Intent.EXTRA_KEY_EVENT, event)
-                            sendBroadcast(standardIntent)
-                        }
-                    }
+            println("BYD_KEY_DEBUG: 拦截到广播！Action = $action")
+            
+            // 打印所有附带的数据，方便我们在 logcat 里查看到底发了什么
+            intent?.extras?.let { bundle ->
+                for (key in bundle.keySet()) {
+                    println("BYD_KEY_DEBUG: 附加数据 -> $key = ${bundle.get(key)}")
                 }
+            }
+
+            // 无论是标准的媒体按键，还是比亚迪私有的 CUSTOM_KEY 广播
+            if (action == "byd.intent.action.MEDIA_BUTTON" || 
+                action == "byd.intent.action.CUSTOM_KEY" || 
+                action == "byd.intent.action.CUSTOM_KEY_LP") {
+                
+                // 这里我们暂时盲目地认为只要收到这个广播，就是播放/暂停。
+                // （如果有副作用，等抓到了具体传了什么参数，我们再写 if 判断）
+                try {
+                    val standardIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    standardIntent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
+                    sendBroadcast(standardIntent)
+                } catch (_: Exception) {}
             }
         }
     }
 
-    // 拦截硬件按键（方向盘、蓝牙耳机），强行转换为系统媒体广播
+    // 拦截硬件按键（如果是走标准通道的话）
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -106,12 +113,10 @@ class MainActivity : AudioServiceActivity() {
             KeyEvent.KEYCODE_MEDIA_PAUSE -> {
                 try {
                     val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    // 伪造一个按下的 KeyEvent，让 MediaButtonReceiver 去处理
                     val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                     intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
                     sendBroadcast(intent)
                 } catch (_: Exception) {}
-                // 拦截该按键，防止车机系统自带的播放器被同时唤醒
                 return true
             }
         }
@@ -120,18 +125,15 @@ class MainActivity : AudioServiceActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        // 车机语音/浮层抢占焦点后系统栏常会回来，焦点回来时再套一次
         if (hasFocus && fullscreen) applyFullscreen(true)
     }
 
     override fun onPostResume() {
         super.onPostResume()
         disableSystemFocusHighlight(window.decorView)
-        // 个别车机在恢复前台时会重置窗口 flag，回到前台重新套一次全屏
         if (fullscreen) applyFullscreen(true)
     }
 
-    /// 全屏：只用纯净的窗口级 FLAG_FULLSCREEN + 布局标志。
     private fun applyFullscreen(on: Boolean) {
         val w = window ?: return
         if (on) {
@@ -158,7 +160,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /// Flutter 自己绘制焦点态；关掉 Android 给 FlutterView 套的默认焦点框
     private fun disableSystemFocusHighlight(view: View) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         view.defaultFocusHighlightEnabled = false
@@ -169,7 +170,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /// 拔耳机 / 蓝牙断开：系统广播 AUDIO_BECOMING_NOISY，通知 Dart 侧暂停
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
@@ -178,7 +178,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /// 熄屏 / 亮屏：车机熄火休眠时会熄屏，通知 Dart 侧暂停并禁止后台自动续播
     private val screenReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
@@ -192,26 +191,16 @@ class MainActivity : AudioServiceActivity() {
         runOnUiThread {
             try {
                 deviceChannel?.invokeMethod(method, null)
-            } catch (_: Exception) {
-                // 通道未就绪时忽略
-            }
+            } catch (_: Exception) {}
         }
     }
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
-            AudioManager.AUDIOFOCUS_GAIN -> {
-                focusCallback?.success("gained")
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                focusCallback?.success("interrupted")
-            }
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                focusCallback?.success("ducked")
-            }
-            AudioManager.AUDIOFOCUS_LOSS -> {
-                focusCallback?.success("lost")
-            }
+            AudioManager.AUDIOFOCUS_GAIN -> focusCallback?.success("gained")
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> focusCallback?.success("interrupted")
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> focusCallback?.success("ducked")
+            AudioManager.AUDIOFOCUS_LOSS -> focusCallback?.success("lost")
         }
     }
 
@@ -219,7 +208,6 @@ class MainActivity : AudioServiceActivity() {
         super.configureFlutterEngine(flutterEngine)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
-        // 注册「即将变噪音」广播（拔耳机/蓝牙断开）→ 自动暂停
         try {
             val noisyFilter = IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -227,11 +215,8 @@ class MainActivity : AudioServiceActivity() {
             } else {
                 registerReceiver(noisyReceiver, noisyFilter)
             }
-        } catch (e: Exception) {
-            // 个别 ROM 限制隐式广播时忽略，不影响播放
-        }
+        } catch (e: Exception) {}
 
-        // 音频焦点
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/audio_focus",
@@ -245,6 +230,7 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
+        
         EventChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/audio_focus_events",
@@ -252,13 +238,11 @@ class MainActivity : AudioServiceActivity() {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
                 focusCallback = events
             }
-
             override fun onCancel(arguments: Any?) {
                 focusCallback = null
             }
         })
 
-        // 保存图片到相册
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/gallery",
@@ -268,17 +252,12 @@ class MainActivity : AudioServiceActivity() {
                 "saveImage" -> {
                     val base64 = call.argument<String>("base64")
                     val name = call.argument<String>("name") ?: "image"
-                    if (base64 == null) {
-                        result.success(null)
-                    } else {
-                        result.success(saveImageToGallery(base64, name))
-                    }
+                    if (base64 == null) result.success(null) else result.success(saveImageToGallery(base64, name))
                 }
                 else -> result.notImplemented()
             }
         }
 
-        // 打开外部链接（浏览器）
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/browser",
@@ -286,18 +265,12 @@ class MainActivity : AudioServiceActivity() {
             when (call.method) {
                 "open" -> {
                     val url = call.argument<String>("url")
-                    if (url.isNullOrBlank()) {
-                        result.success(false)
-                    } else {
-                        result.success(openExternal(url))
-                    }
+                    if (url.isNullOrBlank()) result.success(false) else result.success(openExternal(url))
                 }
-
                 else -> result.notImplemented()
             }
         }
 
-        // 离线缓存进度通知（后台缓存时显示）
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/cache_notify",
@@ -310,17 +283,14 @@ class MainActivity : AudioServiceActivity() {
                     updateCacheNotification(title, text, progress)
                     result.success(true)
                 }
-
                 "cancel" -> {
                     cacheNotifyManager?.cancel(CACHE_NOTIFY_ID)
                     result.success(true)
                 }
-
                 else -> result.notImplemented()
             }
         }
 
-        // 存储可用空间（缓存前预检，避免下到一半才失败）
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/storage",
@@ -329,11 +299,7 @@ class MainActivity : AudioServiceActivity() {
                 "freeBytes" -> {
                     try {
                         val path = call.argument<String>("path")
-                        val stat = if (path.isNullOrBlank()) {
-                            StatFs(filesDir.absolutePath)
-                        } else {
-                            StatFs(path)
-                        }
+                        val stat = if (path.isNullOrBlank()) StatFs(filesDir.absolutePath) else StatFs(path)
                         result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
                             stat.availableBytes
                         } else {
@@ -344,12 +310,10 @@ class MainActivity : AudioServiceActivity() {
                         result.success(-1L)
                     }
                 }
-
                 else -> result.notImplemented()
             }
         }
 
-        // 设备形态（宽屏无触摸 / 方向键设备判定：车机中控、遥控盒子）
         val device = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/device",
@@ -360,47 +324,37 @@ class MainActivity : AudioServiceActivity() {
                 "isLeanback" -> {
                     try {
                         val pm = packageManager
-                        val leanback =
-                            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) ||
-                                pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
-                        val touch =
-                            pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
-                        val dpad = resources.configuration.navigation ==
-                            android.content.res.Configuration.NAVIGATION_DPAD
+                        val leanback = pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) || pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK_ONLY)
+                        val touch = pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+                        val dpad = resources.configuration.navigation == android.content.res.Configuration.NAVIGATION_DPAD
                         result.success((leanback && !touch) || (!touch && dpad))
                     } catch (e: Exception) {
                         result.success(false)
                     }
                 }
-
                 "restart" -> {
                     result.success(true)
                     try {
                         val intent = packageManager.getLaunchIntentForPackage(packageName)
-                        intent?.addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP,
-                        )
+                        intent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                         if (intent != null) startActivity(intent)
                     } catch (_: Exception) {}
                     android.os.Handler(mainLooper).postDelayed({
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 400)
                 }
-
                 "setFullscreen" -> {
                     val on = call.argument<Boolean>("on") ?: false
                     fullscreen = on
                     applyFullscreen(on)
                     result.success(true)
                 }
-
                 "statusBarInset" -> {
                     val inset = try {
                         val insets = window.decorView.rootWindowInsets
                         when {
                             insets == null -> 0
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
-                                insets.getInsets(WindowInsets.Type.statusBars()).top
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> insets.getInsets(WindowInsets.Type.statusBars()).top
                             else -> {
                                 @Suppress("DEPRECATION")
                                 insets.systemWindowInsetTop
@@ -411,13 +365,10 @@ class MainActivity : AudioServiceActivity() {
                     }
                     result.success(inset)
                 }
-
                 "exit" -> {
                     result.success(true)
                     try {
-                        stopService(
-                            Intent(this, com.ryanheise.audioservice.AudioService::class.java),
-                        )
+                        stopService(Intent(this, com.ryanheise.audioservice.AudioService::class.java))
                     } catch (_: Exception) {}
                     try {
                         finishAndRemoveTask()
@@ -426,12 +377,10 @@ class MainActivity : AudioServiceActivity() {
                         android.os.Process.killProcess(android.os.Process.myPid())
                     }, 300)
                 }
-
                 else -> result.notImplemented()
             }
         }
 
-        // 电池优化（后台留存）
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/battery",
@@ -441,15 +390,9 @@ class MainActivity : AudioServiceActivity() {
                     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
                     result.success(pm.isIgnoringBatteryOptimizations(packageName))
                 }
-
                 "requestIgnore" -> {
                     try {
-                        startActivity(
-                            Intent(
-                                Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:$packageName"),
-                            ),
-                        )
+                        startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
                     } catch (_: Exception) {
                         try {
                             startActivity(Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS))
@@ -457,7 +400,6 @@ class MainActivity : AudioServiceActivity() {
                     }
                     result.success(true)
                 }
-
                 else -> result.notImplemented()
             }
         }
@@ -466,16 +408,11 @@ class MainActivity : AudioServiceActivity() {
     override fun onDestroy() {
         try {
             unregisterReceiver(noisyReceiver)
-        } catch (e: Exception) {
-            // 未注册过则忽略
-        }
+        } catch (e: Exception) {}
         
-        // 【新增】注销比亚迪私有广播
         try {
             unregisterReceiver(bydMediaReceiver)
-        } catch (e: Exception) {
-            // 忽略
-        }
+        } catch (e: Exception) {}
         
         super.onDestroy()
     }
@@ -517,7 +454,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /** 用系统浏览器打开链接；没有可用浏览器时返回 false */
     private fun openExternal(url: String): Boolean {
         return try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
@@ -548,9 +484,7 @@ class MainActivity : AudioServiceActivity() {
                 b.setProgress(100, progress, false)
             }
             nm.notify(CACHE_NOTIFY_ID, b.build())
-        } catch (e: Exception) {
-            // 没有通知权限等情况，忽略即可，不影响下载
-        }
+        } catch (e: Exception) {}
     }
 
     private fun createCacheChannel(nm: NotificationManager) {
@@ -567,7 +501,6 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    /** 保存 PNG 到系统相册，返回保存路径；失败返回 null */
     private fun saveImageToGallery(base64: String, name: String): String? {
         return try {
             val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
@@ -579,16 +512,10 @@ class MainActivity : AudioServiceActivity() {
                 val values = android.content.ContentValues().apply {
                     put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, fileName)
                     put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
-                    put(
-                        android.provider.MediaStore.Images.Media.RELATIVE_PATH,
-                        "Pictures/阿B听书",
-                    )
+                    put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/阿B听书")
                     put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
                 }
-                val uri = contentResolver.insert(
-                    android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    values,
-                ) ?: return null
+                val uri = contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: return null
                 contentResolver.openOutputStream(uri)?.use { os ->
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os)
                 }
@@ -599,9 +526,7 @@ class MainActivity : AudioServiceActivity() {
             } else {
                 @Suppress("DEPRECATION")
                 val dir = java.io.File(
-                    android.os.Environment.getExternalStoragePublicDirectory(
-                        android.os.Environment.DIRECTORY_PICTURES,
-                    ),
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_PICTURES),
                     "阿B听书",
                 )
                 if (!dir.exists() && !dir.mkdirs()) return null
