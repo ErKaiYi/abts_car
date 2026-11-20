@@ -1,4 +1,3 @@
-
 package dev.pages.abts
 
 import android.content.BroadcastReceiver
@@ -17,6 +16,7 @@ import android.os.PowerManager
 import android.os.StatFs
 import android.provider.Settings
 import android.util.Log
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -67,6 +67,43 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "register screen receiver failed", e)
         }
+    }
+
+    // 拦截硬件按键（前台生效，后台靠静态广播接收器）
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        // 1. 拦截静音键：直接将静音键转换为播放/暂停
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+            if (event?.action == KeyEvent.ACTION_DOWN) {
+                try {
+                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    // 伪造一个按下的播放/暂停事件，让 audio_service 接收
+                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
+                    sendBroadcast(intent)
+                    Log.i(TAG, "静音键被拦截，触发播放/暂停")
+                } catch (_: Exception) {}
+            }
+            // 返回 true 吃掉该按键，防止系统真正静音
+            return true
+        }
+
+        // 2. 保留原有对标准媒体按键的处理
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_HEADSETHOOK,
+            KeyEvent.KEYCODE_MEDIA_PLAY,
+            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                try {
+                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
+                    sendBroadcast(intent)
+                } catch (_: Exception) {}
+                return true
+            }
+        }
+
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
