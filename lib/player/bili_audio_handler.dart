@@ -38,20 +38,20 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   @override
   Future<void> play() async {
-    debugPrint('[MediaKey] play()');
+    debugPrint('[MediaKey] play() isPlaying=${_player.isPlaying}');
     await _player.resumeFromMediaCommand();
   }
 
   @override
   Future<void> pause() async {
-    debugPrint('[MediaKey] pause()');
+    debugPrint('[MediaKey] pause() isPlaying=${_player.isPlaying}');
     await _player.pause();
   }
 
   /// 关键修复：处理方向盘、蓝牙耳机等媒体按键
   @override
   Future<void> click([MediaButton button = MediaButton.media]) async {
-    debugPrint('[MediaKey] click: $button');
+    debugPrint('[MediaKey] click: $button isPlaying=${_player.isPlaying}');
 
     switch (button) {
       case MediaButton.media:
