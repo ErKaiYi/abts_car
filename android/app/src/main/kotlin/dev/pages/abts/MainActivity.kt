@@ -24,6 +24,7 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+
 class MainActivity : AudioServiceActivity() {
     companion object {
         private const val TAG = "ABTS_Focus"
@@ -88,7 +89,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     /**
-     * 直接调用Dart切换播放暂停，完全绕开MediaSession系统API
+     * 直接调用Dart(UI进程)切换播放暂停，绕开MediaSession系统API
      */
     private fun dispatchMediaPlayPause(source: String) {
         Log.i(TAG, "[$source] trigger dart togglePlayPause")
@@ -97,7 +98,7 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    // 拦截硬件按键（前台生效）
+    // 拦截硬件按键（APP前台时生效）
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // 播放/暂停类键：比亚迪自定义 293、静音键、标准媒体键、耳机线控键
         val playPauseCodes = setOf(
@@ -373,7 +374,7 @@ class MainActivity : AudioServiceActivity() {
                 else -> result.notImplemented()
             }
         }
-        // 设备控制
+        // 设备控制 abts/device 【只保留原有接收逻辑，Kotlin只发不接收togglePlayPause】
         val device = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "abts/device"
@@ -381,10 +382,6 @@ class MainActivity : AudioServiceActivity() {
         deviceChannel = device
         device.setMethodCallHandler { call, result ->
             when (call.method) {
-                "togglePlayPause"->{
-                    // 空，Dart侧接收这个指令，Kotlin只发送
-                    result.notImplemented()
-                }
                 "isLeanback" -> {
                     try {
                         val pm = packageManager
