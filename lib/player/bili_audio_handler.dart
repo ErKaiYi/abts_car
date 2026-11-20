@@ -68,7 +68,7 @@ class BiliAudioHandler extends BaseAudioHandler {
     playbackState.add(playbackState.value.copyWith(playing: false));
   }
 
-  @override
+  // playPause 不是父类抽象方法，删掉 @override
   Future<void> playPause() async {
     if (player.state.playing) {
       await pause();
