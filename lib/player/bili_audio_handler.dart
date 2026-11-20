@@ -10,7 +10,6 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   BiliAudioHandler() {
     _setupPlayer();
-    // 适配旧版本flutter：只接收call一个参数，返回Future
     _deviceChannel.setMethodCallHandler((call) async {
       switch (call.method) {
         case "togglePlayPause":
@@ -84,6 +83,7 @@ class BiliAudioHandler extends BaseAudioHandler {
     playbackState.add(playbackState.value.copyWith(playing: false));
   }
 
+  @override
   Future<void> seek(Duration position) async {
     await player.seek(position);
   }
