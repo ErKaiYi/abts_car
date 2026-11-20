@@ -10,18 +10,16 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   BiliAudioHandler() {
     _setupPlayer();
-    _deviceChannel.setMethodCallHandler((call, result) async {
+    // 适配旧版本flutter：只接收call一个参数，返回Future
+    _deviceChannel.setMethodCallHandler((call) async {
       switch (call.method) {
         case "togglePlayPause":
           await playPause();
-          result.success(true);
-          break;
+          return true;
         case "isLeanback":
-          result.success(false);
-          break;
+          return false;
         default:
-          result.notImplemented();
-          break;
+          throw MissingPluginException();
       }
     });
   }
@@ -33,7 +31,6 @@ class BiliAudioHandler extends BaseAudioHandler {
       ));
     });
 
-    // position不能放在copyWith，audio_service PlaybackState没有position入参
     player.stream.position.listen((Duration pos) {
       playbackState.add(playbackState.value.copyWith(
         updatePosition: pos,
@@ -87,12 +84,10 @@ class BiliAudioHandler extends BaseAudioHandler {
     playbackState.add(playbackState.value.copyWith(playing: false));
   }
 
-  @override
   Future<void> seek(Duration position) async {
     await player.seek(position);
   }
 
-  // 去掉 @override，父类没有这个方法
   Future<void> dispose() async {
     await player.dispose();
   }
