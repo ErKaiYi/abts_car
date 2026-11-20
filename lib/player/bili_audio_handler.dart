@@ -1,6 +1,5 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:media_kit/media_kit.dart';
-import 'dart:io';
 import 'package:flutter/services.dart';
 
 late BiliAudioHandler audioHandler;
@@ -11,19 +10,15 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   BiliAudioHandler() {
     _setupPlayer();
-    // 修复：补上 result 形参 (call, result)
     _deviceChannel.setMethodCallHandler((call, result) async {
       switch (call.method) {
-        /// 原生Kotlin调用：切换播放暂停
         case "togglePlayPause":
           await playPause();
           result.success(true);
           break;
-
         case "isLeanback":
           result.success(false);
           break;
-
         default:
           result.notImplemented();
           break;
@@ -37,14 +32,18 @@ class BiliAudioHandler extends BaseAudioHandler {
         playing: playing,
       ));
     });
+
+    // position不能放在copyWith，audio_service PlaybackState没有position入参
     player.stream.position.listen((Duration pos) {
       playbackState.add(playbackState.value.copyWith(
-        position: pos,
+        updatePosition: pos,
       ));
     });
+
     player.stream.duration.listen((Duration dur) {
       mediaItem.add(mediaItem.value?.copyWith(duration: dur));
     });
+
     player.stream.completed.listen((bool completed) async {
       if (completed) {
         await stop();
@@ -93,6 +92,7 @@ class BiliAudioHandler extends BaseAudioHandler {
     await player.seek(position);
   }
 
+  // 去掉 @override，父类没有这个方法
   Future<void> dispose() async {
     await player.dispose();
   }
