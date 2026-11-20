@@ -1,94 +1,110 @@
 import 'package:audio_service/audio_service.dart';
-import 'package:flutter/foundation.dart';
+import 'package:media_kit/media_kit.dart';
+import 'dart:io';
+import 'package:flutter/services.dart';
 
-import 'book_player.dart';
+late BiliAudioHandler audioHandler;
 
-/// 将 BookPlayer 暴露为 Android 系统媒体会话
 class BiliAudioHandler extends BaseAudioHandler {
+  final Player player = Player();
+  final MethodChannel _deviceChannel = const MethodChannel("abts/device");
+
   BiliAudioHandler() {
-    playbackState.add(
-      PlaybackState(
-        controls: [
-          MediaControl.skipToPrevious,
-          MediaControl.rewind,
-          MediaControl.play,
-          MediaControl.fastForward,
-          MediaControl.skipToNext,
-        ],
-        systemActions: {
-          MediaAction.seek,
-          MediaAction.seekForward,
-          MediaAction.seekBackward,
-          MediaAction.rewind,
-          MediaAction.fastForward,
-          MediaAction.play,
-          MediaAction.pause,
-          MediaAction.playPause,
-          MediaAction.stop,
-        },
-        androidCompactActionIndices: const [0, 1, 2],
-        processingState: AudioProcessingState.idle,
-        playing: false,
-        updatePosition: Duration.zero,
-      ),
-    );
+    _setupPlayer();
+    _deviceChannel.setMethodCallHandler((call) async {
+      switch (call.method) {
+        /// 原生Kotlin调用：切换播放暂停【新增】
+        case "togglePlayPause":
+          await playPause();
+          result.success(true);
+          break;
+
+        case "isLeanback":
+          result.success(false);
+          break;
+
+        default:
+          result.notImplemented();
+          break;
+      }
+    });
   }
 
-  BookPlayer get _player => BookPlayer.instance;
+  void _setupPlayer() {
+    player.streams.playing.listen((bool playing) {
+      playbackState.add(playbackState.value.copyWith(
+        playing: playing,
+      ));
+    });
+    player.streams.position.listen((Duration pos) {
+      playbackState.add(playbackState.value.copyWith(
+        position: pos,
+      ));
+    });
+    player.streams.duration.listen((Duration dur) {
+      mediaItem.add(mediaItem.value?.copyWith(duration: dur));
+    });
+    player.streams.completed.listen((bool completed) async {
+      if (completed) {
+        await stop();
+      }
+    });
+  }
+
+  Future<void> setSource(String uri, {String? title, String? artist}) async {
+    await player.open(Media(uri));
+    mediaItem.add(MediaItem(
+      id: uri,
+      title: title ?? "未知",
+      artist: artist,
+    ));
+  }
 
   @override
   Future<void> play() async {
-    debugPrint('[MediaKey] play() isPlaying=${_player.isPlaying}');
-    await _player.resumeFromMediaCommand();
+    await player.play();
+    playbackState.add(playbackState.value.copyWith(playing: true));
   }
 
   @override
   Future<void> pause() async {
-    debugPrint('[MediaKey] pause() isPlaying=${_player.isPlaying}');
-    await _player.pause();
+    await player.pause();
+    playbackState.add(playbackState.value.copyWith(playing: false));
   }
 
-  /// 关键修复：处理方向盘、蓝牙耳机等媒体按键
   @override
-  Future<void> click([MediaButton button = MediaButton.media]) async {
-    debugPrint('[MediaKey] click: $button isPlaying=${_player.isPlaying}');
-
-    switch (button) {
-      case MediaButton.media:
-        // Android 将 MEDIA_PLAY、MEDIA_PAUSE、
-        // MEDIA_PLAY_PAUSE 等按键统一映射到这里。
-        if (_player.isPlaying) {
-          await _player.pause();
-        } else {
-          await _player.resumeFromMediaCommand();
-        }
-        break;
-
-      case MediaButton.next:
-        await _player.next();
-        break;
-
-      case MediaButton.previous:
-        await _player.previous();
-        break;
+  Future<void> playPause() async {
+    if (player.state.playing) {
+      await pause();
+    } else {
+      await play();
     }
   }
 
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> stop() async {
+    await player.stop();
+    playbackState.add(playbackState.value.copyWith(playing: false));
+  }
 
   @override
-  Future<void> skipToNext() => _player.next();
+  Future<void> seek(Duration position) async {
+    await player.seek(position);
+  }
 
-  @override
-  Future<void> skipToPrevious() => _player.previous();
+  Future<void> dispose() async {
+    await player.dispose();
+  }
+}
 
-  @override
-  Future<void> fastForward() => _player.seekRelative(15);
-
-  @override
-  Future<void> rewind() => _player.seekRelative(-15);
-
-  @override
-  Future<void> stop() => _player.stop();
+Future<BiliAudioHandler> initAudioHandler() async {
+  audioHandler = await AudioService.init(
+    builder: () => BiliAudioHandler(),
+    config: const AudioServiceConfig(
+      androidNotificationChannelId: "dev.pages.abts.audio",
+      androidNotificationChannelName: "音频播放",
+      androidNotificationOngoing: true,
+    ),
+  );
+  return audioHandler;
 }
