@@ -67,27 +67,58 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "register screen receiver failed", e)
         }
+        
+        // 监听 customkey 的底层分发 (后台拦截)
+        try {
+            val customKeyFilter = IntentFilter().apply {
+                addAction("byd.intent.action.CUSTOM_KEY")
+                addAction("byd.intent.action.MEDIA_BUTTON")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(customKeyReceiver, customKeyFilter, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(customKeyReceiver, customKeyFilter)
+            }
+        } catch (_: Exception) {}
     }
 
-    // 拦截硬件按键（前台生效，后台靠静态广播接收器）
+    // 后台监听 customkey 广播
+    private val customKeyReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "byd.intent.action.CUSTOM_KEY") {
+                val type = intent.getIntExtra("type", -1)
+                val value = intent.getIntExtra("value", -1)
+                Log.d(TAG, "收到了 customkey 广播！type=$type, value=$value")
+                
+                // 强行触发我们的播放/暂停
+                try {
+                    val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
+                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
+                    sendBroadcast(mediaIntent)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    // 拦截硬件按键（前台生效）
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // 1. 拦截静音键：直接将静音键转换为播放/暂停
-        if (keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
+        // 293 是比亚迪的 AUTO_CUSTOM_KEY
+        if (keyCode == 293 || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
             if (event?.action == KeyEvent.ACTION_DOWN) {
                 try {
                     val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    // 伪造一个按下的播放/暂停事件，让 audio_service 接收
                     val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                     intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
                     sendBroadcast(intent)
-                    Log.i(TAG, "静音键被拦截，触发播放/暂停")
+                    Log.i(TAG, "成功拦截 293 键或静音键，触发播放/暂停")
                 } catch (_: Exception) {}
             }
-            // 返回 true 吃掉该按键，防止系统真正静音
+            // 返回 true 吃掉该按键，防止系统默认处理
             return true
         }
 
-        // 2. 保留原有对标准媒体按键的处理
+        // 标准媒体键
         when (keyCode) {
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_HEADSETHOOK,
@@ -869,6 +900,10 @@ class MainActivity : AudioServiceActivity() {
 
         try {
             unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
+
+        try {
+            unregisterReceiver(customKeyReceiver)
         } catch (_: Exception) {}
 
         abandonFocus()
