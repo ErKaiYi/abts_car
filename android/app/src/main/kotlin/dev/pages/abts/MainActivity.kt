@@ -68,73 +68,63 @@ class MainActivity : AudioServiceActivity() {
             Log.e(TAG, "register screen receiver failed", e)
         }
         
-        // 监听 customkey 的底层分发 (后台拦截)
-        try {
-            val customKeyFilter = IntentFilter().apply {
-                addAction("byd.intent.action.CUSTOM_KEY")
-                addAction("byd.intent.action.MEDIA_BUTTON")
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                registerReceiver(customKeyReceiver, customKeyFilter, Context.RECEIVER_EXPORTED)
-            } else {
-                registerReceiver(customKeyReceiver, customKeyFilter)
-            }
-        } catch (_: Exception) {}
+        // 比亚迪私有方向盘广播由静态注册的 BydKeyReceiver 接收（后台也生效），
+        // 这里不再动态注册，避免 Activity 销毁后丢失监听。
     }
 
-    // 后台监听 customkey 广播
-    private val customKeyReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "byd.intent.action.CUSTOM_KEY") {
-                val type = intent.getIntExtra("type", -1)
-                val value = intent.getIntExtra("value", -1)
-                Log.d(TAG, "收到了 customkey 广播！type=$type, value=$value")
-                
-                // 强行触发我们的播放/暂停
-                try {
-                    val mediaIntent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    mediaIntent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
-                    sendBroadcast(mediaIntent)
-                } catch (_: Exception) {}
+    /**
+     * 通过系统媒体会话派发标准播放/暂停键（DOWN / UP 成对），
+     * 由 audio_service 会话回调到 BiliAudioHandler。
+     */
+    private fun dispatchMediaPlayPause(source: String) {
+        val am = audioManager ?:
+            getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val code = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+        try {
+            am?.let {
+                it.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code)))
+                it.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code)))
+                Log.i(TAG, "[$source] dispatchMediaKeyEvent PLAY_PAUSE")
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "[$source] dispatchMediaKeyEvent failed", e)
         }
     }
 
     // 拦截硬件按键（前台生效）
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        // 293 是比亚迪的 AUTO_CUSTOM_KEY
-        if (keyCode == 293 || keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) {
-            if (event?.action == KeyEvent.ACTION_DOWN) {
-                try {
-                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
-                    sendBroadcast(intent)
-                    Log.i(TAG, "成功拦截 293 键或静音键，触发播放/暂停")
-                } catch (_: Exception) {}
-            }
-            // 返回 true 吃掉该按键，防止系统默认处理
-            return true
-        }
-
-        // 标准媒体键
-        when (keyCode) {
+        // 播放/暂停类键：比亚迪自定义 293、静音键、标准媒体键、耳机线控键
+        val playPauseCodes = setOf(
+            293,
+            KeyEvent.KEYCODE_VOLUME_MUTE,
             KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
             KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_MEDIA_PLAY,
-            KeyEvent.KEYCODE_MEDIA_PAUSE -> {
-                try {
-                    val intent = Intent(Intent.ACTION_MEDIA_BUTTON)
-                    val newEvent = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    intent.putExtra(Intent.EXTRA_KEY_EVENT, newEvent)
-                    sendBroadcast(intent)
-                } catch (_: Exception) {}
-                return true
+            KeyEvent.KEYCODE_MEDIA_PAUSE,
+        )
+
+        if (keyCode in playPauseCodes) {
+            if (event?.action == KeyEvent.ACTION_DOWN) {
+                Log.i(TAG, "onKeyDown 播放暂停类键 keyCode=$keyCode")
+                dispatchMediaPlayPause("onKeyDown")
             }
+            // 返回 true 吃掉该按键，防止系统默认处理（如静音）
+            return true
         }
 
+        // 其余车机键码全部记录，便于抓出尚未适配的自定义键；
+        // 切歌 / 音量等键放行给系统会话与系统音量通道。
+        if (event?.action == KeyEvent.ACTION_DOWN) {
+            Log.d(TAG, "onKeyDown 未拦截 keyCode=$keyCode")
+        }
         return super.onKeyDown(keyCode, event)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent?): Boolean {
+        if (event != null && event.action == KeyEvent.ACTION_DOWN) {
+            Log.d(TAG, "dispatchKeyEvent keyCode=${event.keyCode}")
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -900,10 +890,6 @@ class MainActivity : AudioServiceActivity() {
 
         try {
             unregisterReceiver(screenReceiver)
-        } catch (_: Exception) {}
-
-        try {
-            unregisterReceiver(customKeyReceiver)
         } catch (_: Exception) {}
 
         abandonFocus()
