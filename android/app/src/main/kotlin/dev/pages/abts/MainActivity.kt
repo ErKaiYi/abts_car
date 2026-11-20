@@ -37,6 +37,19 @@ class MainActivity : AudioServiceActivity() {
     private var cacheNotifyManager: NotificationManager? = null
     private var fullscreen = false
     private var deviceChannel: MethodChannel? = null
+
+    // 接收来自BydKeyReceiver的切换播放暂停信号
+    private val togglePlayReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if(BydKeyReceiver.ACTION_TRIGGER_TOGGLE_PLAY == intent?.action){
+                Log.i(TAG,"receive byd key broadcast -> trigger togglePlayPause");
+                runOnUiThread {
+                    deviceChannel?.invokeMethod("togglePlayPause", null)
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         disableSystemFocusHighlight(window.decorView)
@@ -58,28 +71,32 @@ class MainActivity : AudioServiceActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "register screen receiver failed", e)
         }
+
+        // 注册本地广播，接收BydKeyReceiver信号
+        try{
+            val localFilter = IntentFilter(BydKeyReceiver.ACTION_TRIGGER_TOGGLE_PLAY)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(togglePlayReceiver, localFilter, Context.RECEIVER_NOT_EXPORTED)
+            }else{
+                registerReceiver(togglePlayReceiver, localFilter)
+            }
+        }catch (e:Exception){
+            Log.e(TAG,"register togglePlayReceiver error",e)
+        }
         
-        // 比亚迪私有方向盘广播由静态注册的 BydKeyReceiver 接收（后台也生效），
-        // 这里不再动态注册，避免 Activity 销毁后丢失监听。
+        // 比亚迪私有方向盘广播由静态注册的 BydKeyReceiver 接收（后台也生效）
     }
+
     /**
-     * 通过系统媒体会话派发标准播放/暂停键（DOWN / UP 成对），
-     * 由 audio_service 会话回调到 BiliAudioHandler。
+     * 直接调用Dart切换播放暂停，完全绕开MediaSession系统API
      */
     private fun dispatchMediaPlayPause(source: String) {
-        val am = audioManager ?:
-            getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        val code = KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
-        try {
-            am?.let {
-                it.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
-                it.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
-                Log.i(TAG, "[$source] dispatchMediaKeyEvent PLAY_PAUSE")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "[$source] dispatchMediaKeyEvent failed", e)
+        Log.i(TAG, "[$source] trigger dart togglePlayPause")
+        runOnUiThread {
+            deviceChannel?.invokeMethod("togglePlayPause", null)
         }
     }
+
     // 拦截硬件按键（前台生效）
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         // 播放/暂停类键：比亚迪自定义 293、静音键、标准媒体键、耳机线控键
@@ -364,6 +381,10 @@ class MainActivity : AudioServiceActivity() {
         deviceChannel = device
         device.setMethodCallHandler { call, result ->
             when (call.method) {
+                "togglePlayPause"->{
+                    // 空，Dart侧接收这个指令，Kotlin只发送
+                    result.notImplemented()
+                }
                 "isLeanback" -> {
                     try {
                         val pm = packageManager
@@ -713,6 +734,9 @@ class MainActivity : AudioServiceActivity() {
         }
     }
     override fun onDestroy() {
+        try {
+            unregisterReceiver(togglePlayReceiver)
+        }catch (_:Exception){}
         try {
             unregisterReceiver(noisyReceiver)
         } catch (_: Exception) {}
