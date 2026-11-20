@@ -1,26 +1,13 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:media_kit/media_kit.dart';
-import 'package:flutter/services.dart';
 
 late BiliAudioHandler audioHandler;
 
 class BiliAudioHandler extends BaseAudioHandler {
   final Player player = Player();
-  final MethodChannel _deviceChannel = const MethodChannel("abts/device");
 
   BiliAudioHandler() {
     _setupPlayer();
-    _deviceChannel.setMethodCallHandler((call) async {
-      switch (call.method) {
-        case "togglePlayPause":
-          await playPause();
-          return true;
-        case "isLeanback":
-          return false;
-        default:
-          throw MissingPluginException();
-      }
-    });
   }
 
   void _setupPlayer() {
@@ -68,7 +55,6 @@ class BiliAudioHandler extends BaseAudioHandler {
     playbackState.add(playbackState.value.copyWith(playing: false));
   }
 
-  // playPause 不是父类抽象方法，删掉 @override
   Future<void> playPause() async {
     if (player.state.playing) {
       await pause();
