@@ -1,92 +1,94 @@
 import 'package:audio_service/audio_service.dart';
-import 'package:media_kit/media_kit.dart';
+import 'package:flutter/foundation.dart';
 
-late BiliAudioHandler audioHandler;
+import 'book_player.dart';
 
+/// 将 BookPlayer 暴露为 Android 系统媒体会话
 class BiliAudioHandler extends BaseAudioHandler {
-  final Player player = Player();
-
   BiliAudioHandler() {
-    _setupPlayer();
+    playbackState.add(
+      PlaybackState(
+        controls: [
+          MediaControl.skipToPrevious,
+          MediaControl.rewind,
+          MediaControl.play,
+          MediaControl.fastForward,
+          MediaControl.skipToNext,
+        ],
+        systemActions: {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+          MediaAction.rewind,
+          MediaAction.fastForward,
+          MediaAction.play,
+          MediaAction.pause,
+          MediaAction.playPause,
+          MediaAction.stop,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: AudioProcessingState.idle,
+        playing: false,
+        updatePosition: Duration.zero,
+      ),
+    );
   }
 
-  void _setupPlayer() {
-    player.stream.playing.listen((bool playing) {
-      playbackState.add(playbackState.value.copyWith(
-        playing: playing,
-      ));
-    });
-
-    player.stream.position.listen((Duration pos) {
-      playbackState.add(playbackState.value.copyWith(
-        updatePosition: pos,
-      ));
-    });
-
-    player.stream.duration.listen((Duration dur) {
-      mediaItem.add(mediaItem.value?.copyWith(duration: dur));
-    });
-
-    player.stream.completed.listen((bool completed) async {
-      if (completed) {
-        await stop();
-      }
-    });
-  }
-
-  Future<void> setSource(String uri, {String? title, String? artist}) async {
-    await player.open(Media(uri));
-    mediaItem.add(MediaItem(
-      id: uri,
-      title: title ?? "未知",
-      artist: artist,
-    ));
-  }
+  BookPlayer get _player => BookPlayer.instance;
 
   @override
   Future<void> play() async {
-    await player.play();
-    playbackState.add(playbackState.value.copyWith(playing: true));
+    debugPrint('[MediaKey] play()');
+    await _player.resumeFromMediaCommand();
   }
 
   @override
   Future<void> pause() async {
-    await player.pause();
-    playbackState.add(playbackState.value.copyWith(playing: false));
+    debugPrint('[MediaKey] pause()');
+    await _player.pause();
   }
 
-  Future<void> playPause() async {
-    if (player.state.playing) {
-      await pause();
-    } else {
-      await play();
+  /// 关键修复：处理方向盘、蓝牙耳机等媒体按键
+  @override
+  Future<void> click([MediaButton button = MediaButton.media]) async {
+    debugPrint('[MediaKey] click: $button');
+
+    switch (button) {
+      case MediaButton.media:
+        // Android 将 MEDIA_PLAY、MEDIA_PAUSE、
+        // MEDIA_PLAY_PAUSE 等按键统一映射到这里。
+        if (_player.isPlaying) {
+          await _player.pause();
+        } else {
+          await _player.resumeFromMediaCommand();
+        }
+        break;
+
+      case MediaButton.next:
+        await _player.next();
+        break;
+
+      case MediaButton.previous:
+        await _player.previous();
+        break;
     }
   }
 
   @override
-  Future<void> stop() async {
-    await player.stop();
-    playbackState.add(playbackState.value.copyWith(playing: false));
-  }
+  Future<void> seek(Duration position) => _player.seek(position);
 
   @override
-  Future<void> seek(Duration position) async {
-    await player.seek(position);
-  }
+  Future<void> skipToNext() => _player.next();
 
-  Future<void> dispose() async {
-    await player.dispose();
-  }
-}
+  @override
+  Future<void> skipToPrevious() => _player.previous();
 
-Future<BiliAudioHandler> initAudioHandler() async {
-  audioHandler = await AudioService.init(
-    builder: () => BiliAudioHandler(),
-    config: const AudioServiceConfig(
-      androidNotificationChannelId: "dev.pages.abts.audio",
-      androidNotificationChannelName: "音频播放",
-      androidNotificationOngoing: true,
-    ),
-  );
-  return audioHandler;
+  @override
+  Future<void> fastForward() => _player.seekRelative(15);
+
+  @override
+  Future<void> rewind() => _player.seekRelative(-15);
+
+  @override
+  Future<void> stop() => _player.stop();
 }
