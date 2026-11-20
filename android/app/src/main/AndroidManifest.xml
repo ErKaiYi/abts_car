@@ -55,6 +55,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- 比亚迪 DiLink 方向盘私有按键（播放/暂停），后台也接收 -->
+        <receiver
+            android:name=".BydKeyReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="byd.intent.action.CUSTOM_KEY" />
+                <action android:name="byd.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
         <!-- 原本的 audio_service 媒体按键接收器 -->
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
