@@ -7,14 +7,12 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    
+    <!-- 车机中控：部分车机不声明触摸屏能力（仅旋钮/方向盘操作），放宽限制保证可安装 -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-    
     <application
         android:label="阿B听书"
         android:name=".AbtsApplication"
         android:icon="@mipmap/ic_launcher">
-        
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -37,7 +35,7 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-
+            
         <service
             android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
@@ -48,7 +46,7 @@
             </intent-filter>
         </service>
 
-        <!-- 核心：静音键拦截器（添加到 manifest 里，这样后台也能收到） -->
+        <!-- 【新增：拦截静音键】 -->
         <receiver
             android:name=".VolumeMuteReceiver"
             android:exported="true">
@@ -57,16 +55,20 @@
             </intent-filter>
         </receiver>
 
-        <!-- 核心：保留 audio_service 的媒体按键接收器 -->
+        <!-- 原本的 audio_service 媒体按键接收器 -->
         <receiver
             android:name="com.ryanheise.audioservice.MediaButtonReceiver"
             android:exported="true">
-            <intent-filter android:priority="2147483647">
+            <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
     </application>
-    
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
