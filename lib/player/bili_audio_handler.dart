@@ -11,9 +11,10 @@ class BiliAudioHandler extends BaseAudioHandler {
 
   BiliAudioHandler() {
     _setupPlayer();
-    _deviceChannel.setMethodCallHandler((call) async {
+    // 修复：补上 result 形参 (call, result)
+    _deviceChannel.setMethodCallHandler((call, result) async {
       switch (call.method) {
-        /// 原生Kotlin调用：切换播放暂停【新增】
+        /// 原生Kotlin调用：切换播放暂停
         case "togglePlayPause":
           await playPause();
           result.success(true);
@@ -31,20 +32,20 @@ class BiliAudioHandler extends BaseAudioHandler {
   }
 
   void _setupPlayer() {
-    player.streams.playing.listen((bool playing) {
+    player.stream.playing.listen((bool playing) {
       playbackState.add(playbackState.value.copyWith(
         playing: playing,
       ));
     });
-    player.streams.position.listen((Duration pos) {
+    player.stream.position.listen((Duration pos) {
       playbackState.add(playbackState.value.copyWith(
         position: pos,
       ));
     });
-    player.streams.duration.listen((Duration dur) {
+    player.stream.duration.listen((Duration dur) {
       mediaItem.add(mediaItem.value?.copyWith(duration: dur));
     });
-    player.streams.completed.listen((bool completed) async {
+    player.stream.completed.listen((bool completed) async {
       if (completed) {
         await stop();
       }
